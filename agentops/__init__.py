@@ -22,9 +22,15 @@ from .repair import (
     apply_candidate_to_copy,
     validate_candidate,
 )
+from .autofix_runner import (
+    AutofixCoordinator,
+    AutofixTrialResult,
+)
 
 __all__ = [
     "ApprovalStatus",
+    "AutofixCoordinator",
+    "AutofixTrialResult",
     "CandidateTestStatus",
     "CaseExpectation",
     "DiagnosisEvidence",

@@ -68,6 +68,19 @@ class EvaluationRecord:
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 @dataclass
+class HumanDecisionRecord:
+    decision_id: str
+    repair_id: str
+    source_run_id: str
+    decision: str       # "APPROVED" | "REJECTED"
+    setting_path: str
+    old_value: str
+    new_value: str
+    timestamp: str      # ISO-8601 UTC
+    rationale: Optional[str] = None
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+@dataclass
 class RunTrace:
     """A stored run together with its events in sequence order."""
     run: RunRecord
@@ -193,6 +206,20 @@ def init_db(db_path: str) -> None:
                 failure_category   TEXT,
                 evidence_event_ids TEXT,
                 created_at         TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS human_decisions (
+                decision_id   TEXT PRIMARY KEY,
+                repair_id     TEXT NOT NULL,
+                source_run_id TEXT NOT NULL,
+                decision      TEXT NOT NULL,
+                setting_path  TEXT NOT NULL,
+                old_value     TEXT NOT NULL,
+                new_value     TEXT NOT NULL,
+                timestamp     TEXT NOT NULL,
+                rationale     TEXT,
+                created_at    TEXT NOT NULL
             )
         """)
         for table, columns in _MIGRATIONS.items():
@@ -357,6 +384,49 @@ def save_evaluation(db_path: str, evaluation: EvaluationRecord) -> None:
             evaluation.created_at,
         ))
     conn.close()
+
+
+def save_human_decision(db_path: str, record: HumanDecisionRecord) -> None:
+    """Insert or replace a HumanDecisionRecord."""
+    init_db(db_path)
+    conn = sqlite3.connect(db_path)
+    with conn:
+        conn.execute("""
+            INSERT OR REPLACE INTO human_decisions
+                (decision_id, repair_id, source_run_id, decision, setting_path,
+                 old_value, new_value, timestamp, rationale, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            record.decision_id,
+            record.repair_id,
+            record.source_run_id,
+            record.decision,
+            record.setting_path,
+            str(record.old_value),
+            str(record.new_value),
+            record.timestamp,
+            record.rationale,
+            record.created_at,
+        ))
+    conn.close()
+
+
+def list_human_decisions(db_path: str, source_run_id: Optional[str] = None) -> List[HumanDecisionRecord]:
+    """List stored human decisions (newest first)."""
+    if not os.path.exists(db_path):
+        return []
+    where, params = ("WHERE source_run_id = ?", (source_run_id,)) if source_run_id is not None else ("", ())
+    conn = _connect_readonly(db_path)
+    try:
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "human_decisions" not in tables:
+            return []
+        rows = conn.execute(
+            f"SELECT * FROM human_decisions {where} ORDER BY created_at DESC, decision_id DESC", params
+        ).fetchall()
+        return [HumanDecisionRecord(**{key: row[key] for key in row.keys()}) for row in rows]
+    finally:
+        conn.close()
 
 
 # ── High-Level Tracer Interface (agent calls this) ────────────────────────────

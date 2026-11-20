@@ -1,4 +1,4 @@
-"""Diagnosis and safe repair-candidate primitives for AgentOps."""
+"""AgentOps: deterministic read-only diagnosis, allowlisted repair, and autofix coordination."""
 
 from .diagnosis import (
     CaseExpectation,
@@ -17,9 +17,16 @@ from .diagnosis import (
 )
 from .repair import (
     ApprovalStatus,
+    CandidateEvaluator,
     CandidateTestStatus,
+    EvaluationResult,
     RepairCandidate,
+    RepairEvaluationError,
+    RepairReview,
+    RepairReviewStatus,
     apply_candidate_to_copy,
+    decide_repair_review,
+    review_candidate,
     validate_candidate,
 )
 from .autofix_runner import (
@@ -31,21 +38,28 @@ __all__ = [
     "ApprovalStatus",
     "AutofixCoordinator",
     "AutofixTrialResult",
+    "CandidateEvaluator",
     "CandidateTestStatus",
     "CaseExpectation",
     "DiagnosisEvidence",
     "DiagnosisLimitExceeded",
     "DiagnosisRequest",
     "DiagnosisResult",
+    "EvaluationResult",
     "FailureCategory",
     "FailureSummary",
     "RepairCandidate",
+    "RepairEvaluationError",
+    "RepairReview",
+    "RepairReviewStatus",
     "RunInspection",
     "TraceEvent",
     "apply_candidate_to_copy",
+    "decide_repair_review",
     "diagnose",
     "get_case_expectation",
     "get_failure_summary",
     "get_run_trace",
+    "review_candidate",
     "validate_candidate",
 ]

@@ -35,6 +35,7 @@ from src.tracer import (
     list_evaluations,
     list_human_decisions,
     list_runs,
+    run_trace_to_dict,
 )
 
 # Default local database path
@@ -72,12 +73,16 @@ def render_cli_summary(baseline_report: SuiteReport, fastfail_report: SuiteRepor
     b_tf = baseline_report.metrics.get("tool_failures", {})
     b_rec = baseline_report.metrics.get("recovery", {})
     b_sv = baseline_report.metrics.get("safety_violations", {})
+    b_fla = baseline_report.metrics.get("failure_localization", {})
+    rfr = comparison.regression_rate
+    rsr = getattr(comparison, "repair_success", {})
 
     print("BASELINE METRICS (Counts & Denominators):")
-    print(f"  • Task Success Rate   : {format_rate(b_ts, 'task_success_rate', 'passed_count', 'total_cases')}")
-    print(f"  • Tool Failure Rate    : {format_rate(b_tf, 'tool_failure_rate', 'failed_tool_calls', 'total_tool_calls')}")
-    print(f"  • Recovery Rate        : {format_rate(b_rec, 'recovery_rate', 'recovered_count', 'error_cases_total')}")
-    print(f"  • Safety Violations    : {format_rate(b_sv, 'safety_violation_rate', 'violation_count', 'total_cases')}")
+    print(f"  • Task Success Rate       : {format_rate(b_ts, 'task_success_rate', 'passed_count', 'total_cases')}")
+    print(f"  • Tool Failure Rate        : {format_rate(b_tf, 'tool_failure_rate', 'failed_tool_calls', 'total_tool_calls')}")
+    print(f"  • Recovery Rate            : {format_rate(b_rec, 'recovery_rate', 'recovered_count', 'error_cases_total')}")
+    print(f"  • Safety Violations        : {format_rate(b_sv, 'safety_violation_rate', 'violation_count', 'total_cases')}")
+    print(f"  • Localization Accuracy    : {format_rate(b_fla, 'localization_accuracy', 'matched_count', 'failed_cases_total')}")
     print("-" * 80)
 
     # Case Outcomes
@@ -89,10 +94,13 @@ def render_cli_summary(baseline_report: SuiteReport, fastfail_report: SuiteRepor
     print("-" * 80)
 
     # Comparison Gating
-    print(f"Comparison Verdict : {comparison.verdict}")
-    print(f"Reason             : {comparison.reason}")
-    print(f"Safety Gate        : {comparison.safety_status}")
-    print(f"Regression Rate    : {comparison.regression_rate.get('regressed_count', 0)}/{comparison.regression_rate.get('baseline_passed_count', 0)}")
+    print("CANDIDATE COMPARISON & GATING (Counts & Denominators):")
+    print(f"  • Comparison Verdict     : {comparison.verdict}")
+    print(f"  • Gating Reason          : {comparison.reason}")
+    print(f"  • Safety Gate            : {comparison.safety_status}")
+    print(f"  • Regression Rate (RFR)  : {format_rate(rfr, 'regression_rate', 'regressed_count', 'baseline_passed_count')}")
+    if rsr:
+        print(f"  • Repair Success (RSR)   : {format_rate(rsr, 'repair_success_rate', 'repaired_count', 'targeted_failing_count')}")
     print("=" * 80)
 
 

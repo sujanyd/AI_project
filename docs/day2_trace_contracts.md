@@ -62,8 +62,10 @@ Aligned with the `EventType` enum in `src/models.py`.
 | `OBSERVATION` | Agent's interpretation / synthesis of the tool result |
 | `SAFE_STOP` | Agent halts gracefully (policy limit, max turns, etc.) |
 | `FINAL_STATUS` | Terminal bookkeeping event; closes the run |
+| `VALIDATION` | Response safety/schema check by the `response_validation` tool (stored with stage `validation`) |
+| `ERROR` | Agent-level error, e.g. an execution budget (`MAX_STEPS_EXCEEDED`) was hit |
 
-> **Note — VALIDATION (future):** A `VALIDATION` event type for safety/schema checks is not yet in `EventType`. When added, it should sit between `TOOL_RESULT` and `OBSERVATION` in sequence. Track via open question #1 below.
+> **Note:** `VALIDATION` was added to `EventType` (open question #1, resolved). It is emitted after the agent synthesizes its answer and before `FINAL_STATUS`.
 
 ---
 
@@ -242,6 +244,12 @@ One run with two events — a `TOOL_CALL` followed by its `TOOL_RESULT`.
 | `step_number` | `stage` (on Event) | Semantic shift — stage is a label, not a counter |
 
 ### Open Questions
+
+> **Resolved in implementation:**
+> 1. `VALIDATION` is part of `EventType` in `src/models.py`.
+> 2. Repair state lives outside the tracer: candidates and review in `agentops/repair.py`, human approve/reject decisions in the `human_decisions` table via `src/tracer.py`.
+> 3. `checks` is stored as a JSON object of `{check_name: bool}`.
+> 4. Evidence integrity is enforced in code rather than by SQLite FKs: diagnosis and repair validation reject any cited event ID that does not belong to the selected run.
 
 1. **`VALIDATION` event type** — Should `VALIDATION` be added to the `EventType` enum in `src/models.py`? It is referenced in evaluator logic but absent from the current enum. Decision needed before the tracer module is implemented.
 

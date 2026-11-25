@@ -32,6 +32,8 @@ _CATEGORY_BY_ERROR_CODE = {
     "ORDER_NOT_FOUND": DiagnosisCategory.UNKNOWN_ORDER,
     "INCOMPLETE_TOOL_RESULT": DiagnosisCategory.INCOMPLETE_TOOL_RESULT,
     "CONFLICTING_INFORMATION": DiagnosisCategory.CONFLICTING_INFORMATION,
+    "MAX_STEPS_EXCEEDED": DiagnosisCategory.EXECUTION_LIMIT,
+    "MAX_TOOL_CALLS_EXCEEDED": DiagnosisCategory.EXECUTION_LIMIT,
 }
 
 # Evaluator failure categories (src.evaluation.FailureCategory values) -> diagnosis categories.
@@ -40,6 +42,8 @@ _CATEGORY_BY_EVALUATOR = {
     "MISSING_INFORMATION": DiagnosisCategory.MISSING_ORDER_ID,
     "MALFORMED_RESULT": DiagnosisCategory.INCOMPLETE_TOOL_RESULT,
     "CONFLICTING_EVIDENCE": DiagnosisCategory.CONFLICTING_INFORMATION,
+    "UNSAFE_CLAIM": DiagnosisCategory.UNSAFE_CLAIM,
+    "LIMIT_EXCEEDED": DiagnosisCategory.EXECUTION_LIMIT,
 }
 
 _TOOL_CONFIG_KEYS = ("max_tool_calls", "tool_timeout_ms", "retry_count", "validate_response")

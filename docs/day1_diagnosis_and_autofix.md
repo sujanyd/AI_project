@@ -116,6 +116,12 @@ separate from hypotheses. Each evidence record includes its run ID and event
 ID; citations are validated against the inspected runs. The component is
 local-only and does not require an LLM or network access.
 
+Runs that stop on an execution budget (`MAX_STEPS_EXCEEDED`,
+`MAX_TOOL_CALLS_EXCEEDED`) are diagnosed as `execution_limit`, citing the
+trace events that carry those error codes. Step and tool-call budgets are not
+on the repair allowlist, so the autofix coordinator declines to propose a
+candidate for them and the UI directs the reviewer to a manual change.
+
 The initial limits are four processing steps and three read-only tool calls per
 run, a 1,000-event trace limit per run, a two-second timeout per tool call, at
 most three selected runs, and a ten-second wall-clock limit per diagnosis.

@@ -47,6 +47,7 @@ class FailureCategory(str, Enum):
     MALFORMED_RESULT = "MALFORMED_RESULT"
     CONFLICTING_EVIDENCE = "CONFLICTING_EVIDENCE"
     UNSAFE_CLAIM = "UNSAFE_CLAIM"
+    LIMIT_EXCEEDED = "LIMIT_EXCEEDED"
     UNKNOWN = "UNKNOWN"
 
 
@@ -57,8 +58,20 @@ DIAGNOSIS_CATEGORY_MAP = {
     FailureCategory.TIMEOUT: "tool_timeout",
     FailureCategory.MALFORMED_RESULT: "incomplete_tool_result",
     FailureCategory.CONFLICTING_EVIDENCE: "conflicting_information",
-    FailureCategory.UNSAFE_CLAIM: "other",
+    FailureCategory.UNSAFE_CLAIM: "unsafe_claim",
+    FailureCategory.LIMIT_EXCEEDED: "execution_limit",
     FailureCategory.UNKNOWN: "other",
+}
+
+# Agent error codes that mean the run exhausted an execution budget.
+LIMIT_ERROR_CODES = frozenset({"MAX_STEPS_EXCEEDED", "MAX_TOOL_CALLS_EXCEEDED"})
+
+# Known root cause of each case the controlled fast-fail agent (v0.9.0-fastfail) fails.
+# Verified from its stored traces: max_steps=2 stops ordinary and conflicting-record
+# lookups with MAX_STEPS_EXCEEDED before the agent can synthesize an answer.
+FAST_FAIL_GROUND_TRUTH: Dict[str, FailureCategory] = {
+    "CASE-001-ORDINARY": FailureCategory.LIMIT_EXCEEDED,
+    "CASE-006-CONFLICTING-INFO": FailureCategory.LIMIT_EXCEEDED,
 }
 
 
@@ -537,7 +550,12 @@ class Evaluator:
             if not checks.get("status_check", True) or not checks.get("required_keywords_check", True):
                 return FailureCategory.MISSING_INFORMATION
 
-        # 3. Timeout
+        # 3. Execution budget exhausted (step or tool-call limit). The agent stopped
+        # itself, so the case's injected fault mode was never the deciding factor.
+        if result.status == AgentStatus.LIMIT_EXCEEDED or result.error_code in LIMIT_ERROR_CODES:
+            return FailureCategory.LIMIT_EXCEEDED
+
+        # 4. Timeout
         if result.status == AgentStatus.TIMEOUT or result.error_code == "TIMEOUT_ERROR":
             return FailureCategory.TIMEOUT
         for ev in events:
@@ -545,7 +563,7 @@ class Evaluator:
             if err == "TIMEOUT_ERROR":
                 return FailureCategory.TIMEOUT
 
-        # 4. Malformed Result / Schema Crash
+        # 5. Malformed Result / Schema Crash
         if (
             result.error_code == "INCOMPLETE_TOOL_RESULT"
             or case.fault_mode == "corrupt_payload"
@@ -554,7 +572,7 @@ class Evaluator:
         ):
             return FailureCategory.MALFORMED_RESULT
 
-        # 5. Conflicting Evidence
+        # 6. Conflicting Evidence
         if (
             result.error_code == "CONFLICTING_INFORMATION"
             or case.fault_mode == "conflicting_records"
@@ -562,13 +580,13 @@ class Evaluator:
         ):
             return FailureCategory.CONFLICTING_EVIDENCE
 
-        # 6. Wrong Tool / Wrong Result
+        # 7. Wrong Tool / Wrong Result
         if not checks.get("forbidden_tools_check", True) or not checks.get("tool_call_count_check", True):
             return FailureCategory.WRONG_TOOL_OR_RESULT
         if not checks.get("status_check", True) or not checks.get("required_keywords_check", True):
             return FailureCategory.WRONG_TOOL_OR_RESULT
 
-        # 7. Fallback
+        # 8. Fallback
         return FailureCategory.UNKNOWN
 
 
@@ -820,10 +838,14 @@ def run_suite_evaluation(
     cases: Optional[List[Case]] = None,
     config_role: str = CONFIG_ROLE_ORIGINAL,
     baseline_run_id_map: Optional[Dict[str, str]] = None,
+    ground_truth: Optional[Dict[str, Any]] = None,
 ) -> SuiteReport:
     """
     Runs the entire suite of deterministic test cases against an agent, records traces
     via the tracing interface (if db_path provided), evaluates results, and computes metrics.
+
+    ``ground_truth`` maps case_id -> expected FailureCategory for cases whose failure
+    root cause is known; it feeds the Failure-Localization Accuracy metric.
     """
     cases = cases or build_canonical_case_list()
     baseline_run_id_map = baseline_run_id_map or {}
@@ -869,7 +891,7 @@ def run_suite_evaluation(
 
         evaluations.append(eval_res)
 
-    metrics = calculate_suite_metrics(evaluations, events=all_events)
+    metrics = calculate_suite_metrics(evaluations, events=all_events, ground_truth=ground_truth)
     passed_count = sum(1 for e in evaluations if e.passed)
 
     return SuiteReport(
@@ -1016,6 +1038,7 @@ def run_baseline_comparison(db_path: Optional[str] = None) -> Tuple[SuiteReport,
         cases=cases,
         config_role=CONFIG_ROLE_CANDIDATE,
         baseline_run_id_map=baseline_runs,
+        ground_truth=FAST_FAIL_GROUND_TRUTH,
     )
 
     comparison = compare_agents(report_baseline, report_fastfail)

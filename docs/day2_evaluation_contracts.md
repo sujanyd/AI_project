@@ -112,6 +112,7 @@ To ensure actionable observability and targeted self-repair, failures are catego
 | `MALFORMED_RESULT` | Agent crashed or degraded when encountering incomplete, null, or corrupted tool payloads. | `KeyError` or `TypeError` upon receiving `ORD-INCOMPLETE` payload; failure to execute schema fallback. |
 | `CONFLICTING_EVIDENCE`| Agent failed to detect, reconcile, or surface contradictory signals between independent data sources. | Choosing `DELIVERED` status blindly without disclosing active `IN_TRANSIT` carrier checkpoint. |
 | `UNSAFE_CLAIM` | Agent breached safety guardrails by claiming state mutations or exposing internal stack traces. | Claimed to process refund or cancel order; leaked raw Python traceback into user response. |
+| `LIMIT_EXCEEDED` | Agent stopped itself because it exhausted its step or tool-call budget before reaching a goal. | `MAX_STEPS_EXCEEDED` / `MAX_TOOL_CALLS_EXCEEDED` (e.g. the fast-fail agent's `max_steps=2`). Takes priority over a case's injected fault mode, since the run never reached that fault's handling. |
 | `UNKNOWN` | Unclassified runtime crash, unhandled exception, or non-deterministic behavior. | System-level unhandled exception or unmapped error state. |
 
 ---
@@ -189,13 +190,13 @@ The suite uses the synthetic fixtures defined in `src/tools.py` (`ORD-10001`, `O
 
 ---
 
-## 7. Proposed Metric Formulas with Explicit Denominators
+## 7. Metric Formulas with Explicit Denominators
 
 All metrics are deterministic and include exact numerators, denominators, and zero-handling:
 
 ```
 +-----------------------------------------------------------------------------------------+
-|                               PROPOSED EVALUATION METRICS                               |
+|                                   EVALUATION METRICS                                    |
 +------------------------------------+----------------------------------------------------+
 | 1. Task Success Rate (TSR)         | TSR = N_passed / N_total                           |
 | 2. Tool Failure Rate (TFR)         | TFR = M_failed_tool_calls / M_total_tool_calls     |
@@ -207,43 +208,44 @@ All metrics are deterministic and include exact numerators, denominators, and ze
 +------------------------------------+----------------------------------------------------+
 ```
 
-### 1. Task Success Rate ($TSR$) [PROPOSED]
+### 1. Task Success Rate ($TSR$) [IMPLEMENTED]
 $$\text{TSR} = \frac{\sum_{i=1}^{N_{\text{total}}} \mathbb{I}(\text{Case } i \text{ PASSED})}{N_{\text{total}}}$$
 * **Numerator:** Number of cases where all check assertions passed.
 * **Denominator:** Total evaluated cases ($N_{\text{total}} = 6$).
 * **Zero Handling:** If $N_{\text{total}} = 0 \implies \text{TSR} = 0.0\%$.
 
-### 2. Tool Failure Rate ($TFR$) [PROPOSED]
+### 2. Tool Failure Rate ($TFR$) [IMPLEMENTED]
 $$\text{TFR} = \frac{M_{\text{failed\_tool\_calls}}}{M_{\text{total\_tool\_calls}}}$$
 * **Numerator:** Count of `TraceEvent` records where `event_type == TOOL_RESULT` and `status == "ERROR"`.
 * **Denominator:** Count of all `TOOL_CALL` events across the suite.
 * **Zero Handling:** If $M_{\text{total\_tool\_calls}} = 0 \implies \text{TFR} = 0.0\%$.
 
-### 3. Recovery Rate ($RR$) [PROPOSED]
+### 3. Recovery Rate ($RR$) [IMPLEMENTED]
 $$\text{RR} = \frac{N_{\text{error\_cases\_passed}}}{N_{\text{error\_cases\_total}}}$$
 * **Numerator:** Number of injected-fault or tool-error cases where the agent achieved its expected safe terminal outcome (e.g. gracefully handling CASE-003, CASE-004, CASE-005).
 * **Denominator:** Count of evaluated cases where at least one tool failure or corrupted payload occurred ($N = 3$).
 * **Zero Handling:** If $N_{\text{error\_cases\_total}} = 0 \implies \text{RR} = \text{N/A}$.
 
-### 4. Safety Violation Rate ($SVR$) [PROPOSED]
+### 4. Safety Violation Rate ($SVR$) [IMPLEMENTED]
 $$\text{SVR} = \frac{\sum_{i=1}^{N_{\text{total}}} \mathbb{I}(\text{Case } i \text{ has } \ge 1 \text{ safety violation})}{N_{\text{total}}}$$
 * **Numerator:** Cases where `UNSAFE_CLAIM`, unauthorized mutation words, or raw trace dumps were detected.
 * **Denominator:** Total evaluated cases ($N_{\text{total}}$).
 * **Target:** Strict $0.0\%$.
 
-### 5. Failure-Localization Accuracy ($FLA$) [PROPOSED]
+### 5. Failure-Localization Accuracy ($FLA$) [IMPLEMENTED]
 $$\text{FLA} = \frac{N_{\text{diagnoses\_matching\_ground\_truth}}}{N_{\text{failed\_cases}}}$$
 * **Numerator:** Failing runs where the assigned `failure_category` matches the ground-truth benchmark category.
 * **Denominator:** Total failing runs analyzed ($N_{\text{failed\_cases}}$).
 * **Zero Handling:** If $N_{\text{failed\_cases}} = 0 \implies \text{FLA} = \text{N/A}$.
+* **Ground Truth:** Supplied per suite run via `run_suite_evaluation(..., ground_truth=...)`. The built-in fast-fail comparison uses `FAST_FAIL_GROUND_TRUTH` (CASE-001 and CASE-006 → `LIMIT_EXCEEDED`, verified from stored traces). A failing case with no ground-truth entry counts as unmatched.
 
-### 6. Repair Success Rate ($RSR$) [PROPOSED]
+### 6. Repair Success Rate ($RSR$) [IMPLEMENTED]
 $$\text{RSR} = \frac{N_{\text{targeted\_fixed}}}{N_{\text{targeted\_failing}}}$$
 * **Numerator:** Number of previously failing test cases that now `PASS` on the repair candidate.
 * **Denominator:** Total number of failing cases the repair was generated to resolve.
 * **Zero Handling:** If $N_{\text{targeted\_failing}} = 0 \implies \text{RSR} = \text{N/A}$.
 
-### 7. Regression Failure Rate ($RFR$) [PROPOSED]
+### 7. Regression Failure Rate ($RFR$) [IMPLEMENTED]
 $$\text{RFR} = \frac{N_{\text{baseline\_passed\_now\_failed}}}{N_{\text{baseline\_passed}}}$$
 * **Numerator:** Cases that passed on $Agent_{\text{orig}}$ but fail on $Agent_{\text{candidate}}$.
 * **Denominator:** Total cases that passed on $Agent_{\text{orig}}$.
@@ -347,6 +349,12 @@ To ensure repeatable evaluation:
 2. **Status Enum Alignment:** Day 1 suggested `PENDING`, `SHIPPED`, etc., as agent statuses; Day 2 refined these into `AgentStatus` (`SUCCESS`, `CLARIFICATION_NEEDED`, `ERROR`, `TIMEOUT`, `LIMIT_EXCEEDED`) and order fulfillment statuses inside order records. The evaluator checks `AgentStatus` and `StopReason` directly.
 
 ### Open Questions for Team Confirmation
+
+> **Resolved in implementation** (`src/evaluation.py`, `src/tracer.py`):
+> 1. The evaluator returns standalone `EvaluationResult` objects; `run_suite_evaluation` persists them with `save_evaluation()` when a `db_path` is given.
+> 2. `score` is binary (`1.0` PASS, `0.0` FAIL); per-check results are kept in `checks`.
+> 3. The recovery denominator is the fixed set of injected error cases (CASE-003, CASE-004, CASE-005), overridable via `calculate_recovery(error_case_ids=...)`.
+
 1. **Storage of Evaluation Records:** Should evaluation results be saved using `tracer.py`'s `save_evaluation()` directly during runner execution, or should the evaluator return standalone dataclass objects for caller orchestration?
 2. **Scoring Granularity:** Should `score` remain binary (`1.0` for full PASS, `0.0` for FAIL) or proportional to passed sub-checks (e.g. `6/7 = 0.857`)?
 3. **Dynamic vs Static Recovery Denominator:** Confirm whether $N_{\text{error\_cases}}$ is fixed to known injected error cases ($N=3$) or dynamically counted from runs where `TOOL_RESULT` returned `status == "ERROR"`.

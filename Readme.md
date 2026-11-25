@@ -1,5 +1,7 @@
 # AgentOps: AI Agent Evaluation, Observability & Safe Self-Repair Platform
 
+[![tests](https://github.com/sujanyd/AI_project/actions/workflows/tests.yml/badge.svg)](https://github.com/sujanyd/AI_project/actions/workflows/tests.yml)
+
 AgentOps is a local, deterministic evaluation and self-repair prototype for an e-commerce customer support agent. It provides:
 1. **Support Agent & Deterministic Mock Tools:** Realistic simulation of order lookup, shipping policy lookup, and response safety validation without external network calls or write actions.
 2. **Ordered SQLite Tracing:** Complete execution recording for planning thoughts, tool dispatches, observations, and safe stops.
@@ -12,7 +14,7 @@ AgentOps is a local, deterministic evaluation and self-repair prototype for an e
 
 ## 1. Prerequisites & Installation
 
-- **Python Version:** Python 3.11, 3.12, 3.13, 3.14, or 3.15.
+- **Python Version:** Python 3.11 or newer (CI tests 3.11, 3.12 and 3.13).
 - **Dependencies:** Install the project dependencies listed in `requirements.txt`:
   ```bash
   pip install -r requirements.txt
@@ -41,22 +43,24 @@ If running in a headless or text-only environment:
 ```bash
 python3 app.py
 ```
-Outputs the side-by-side comparison report, counts/denominators, regression rates, and gate verdicts directly to standard output.
+Outputs baseline and candidate suite metrics side by side (including failure-localization accuracy), per-case outcomes, regression rates, and gate verdicts directly to standard output. Traces are written to `data/agentops.db`, which is git-ignored.
 
 ---
 
 ## 3. Running Automated Tests
 
-All tests run completely offline and finish in under a second using Python's standard `unittest` discovery:
+All tests run completely offline and finish in a few seconds using Python's standard `unittest` discovery:
 ```bash
 python3 -m unittest discover -s tests -p "test_*.py" -v
 ```
-**Total Test Count:** 109 unit and integration tests covering:
+**Total Test Count:** 128 unit and integration tests (run on every push and pull request by GitHub Actions) covering:
 - Support agent limit enforcement, timeout handling, and read-only protections (`test_agent_and_tools.py`)
 - SQLite schema migrations, event ordering, and sanitization (`test_tracer.py`, `test_trace_recorder.py`)
 - Canonical test case scoring and metric calculations (`test_evaluator.py`)
 - Read-only diagnosis isolation and trace evidence citations (`test_diagnosis_repair.py`, `test_trace_diagnosis.py`)
-- Autofix trial execution, copy isolation, regression gating, and human review recording (`test_autofix_coordinator.py`)
+- Autofix trial execution, copy isolation, regression gating, and human review recording (`test_autofix_coordinator.py`, `test_candidate_config_and_decision_persistence.py`)
+- Execution-limit classification, failure-localization ground truth, and allowlist refusal (`test_execution_limit_localization.py`)
+- Streamlit UI end-to-end flows via `AppTest` (`test_ui_apptest_e2e.py`)
 
 ---
 
@@ -105,7 +109,7 @@ python3 -m unittest discover -s tests -p "test_*.py" -v
 ## 5. Safety Boundaries & Guardrails
 
 - **Zero Write Actions:** The support agent has no tools or permissions to modify real databases, process refunds, cancel orders, or dispatch emails. Write intent keywords are automatically intercepted with safe explanations.
-- **Narrow Autofix Allowlist:** Automated repair candidates are restricted strictly to allowlisted operational parameters (`tools.lookup_order_details.retry_count` bounded 0→1, 1→2 and `agent.clarification_instruction`). No arbitrary code editing or unverified parameter mutations are allowed.
+- **Narrow Autofix Allowlist:** Automated repair candidates are restricted strictly to allowlisted operational parameters (`tools.lookup_order_details.retry_count` bounded 0→1, 1→2 and `agent.clarification_instruction`). No arbitrary code editing or unverified parameter mutations are allowed. Failures outside the allowlist, such as an exhausted step budget (`LIMIT_EXCEEDED`), are diagnosed with trace evidence but no candidate is proposed; they are left for manual review.
 - **Copy Isolation:** Proposed repairs are applied strictly to a `deepcopy` of the configuration. The baseline or live agent is never mutated during trial runs.
 - **Regression & Safety Gating:** Any candidate that causes a regression on previously passing test cases or triggers a safety violation is blocked from recommendation.
 - **Human Review Gate:** Approval records human consent; it does not automatically deploy changes to production.

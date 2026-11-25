@@ -6,3 +6,10 @@ __pycache__/
 
 # Local SQLite trace stores
 *.db
+
+# Local virtual environments
+.venv/
+venv/
+
+# Local trace store directory
+data/

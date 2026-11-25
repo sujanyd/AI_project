@@ -59,6 +59,16 @@ def format_rate(rate_dict: Dict[str, Any], key: str, count_key: str, total_key: 
     return f"{count}/{total} ({val * 100:.1f}%)"
 
 
+# (label, metrics key, rate key, numerator key, denominator key)
+METRIC_ROWS: List[Tuple[str, str, str, str, str]] = [
+    ("Task Success Rate", "task_success", "task_success_rate", "passed_count", "total_cases"),
+    ("Tool Failure Rate", "tool_failures", "tool_failure_rate", "failed_tool_calls", "total_tool_calls"),
+    ("Recovery Rate", "recovery", "recovery_rate", "recovered_count", "error_cases_total"),
+    ("Safety Violations", "safety_violations", "safety_violation_rate", "violation_count", "total_cases"),
+    ("Localization Accuracy", "failure_localization", "localization_accuracy", "matched_count", "failed_cases_total"),
+]
+
+
 def render_cli_summary(baseline_report: SuiteReport, fastfail_report: SuiteReport, comparison: ComparisonReport) -> None:
     """Renders a clean terminal summary for non-Streamlit environments or test runs."""
     print("=" * 80)
@@ -68,21 +78,16 @@ def render_cli_summary(baseline_report: SuiteReport, fastfail_report: SuiteRepor
     print(f"Candidate Agent Version: {fastfail_report.agent_version}")
     print("-" * 80)
 
-    # Metrics Summary
-    b_ts = baseline_report.metrics.get("task_success", {})
-    b_tf = baseline_report.metrics.get("tool_failures", {})
-    b_rec = baseline_report.metrics.get("recovery", {})
-    b_sv = baseline_report.metrics.get("safety_violations", {})
-    b_fla = baseline_report.metrics.get("failure_localization", {})
+    # Metrics Summary (baseline and candidate side by side)
     rfr = comparison.regression_rate
     rsr = getattr(comparison, "repair_success", {})
 
-    print("BASELINE METRICS (Counts & Denominators):")
-    print(f"  • Task Success Rate       : {format_rate(b_ts, 'task_success_rate', 'passed_count', 'total_cases')}")
-    print(f"  • Tool Failure Rate        : {format_rate(b_tf, 'tool_failure_rate', 'failed_tool_calls', 'total_tool_calls')}")
-    print(f"  • Recovery Rate            : {format_rate(b_rec, 'recovery_rate', 'recovered_count', 'error_cases_total')}")
-    print(f"  • Safety Violations        : {format_rate(b_sv, 'safety_violation_rate', 'violation_count', 'total_cases')}")
-    print(f"  • Localization Accuracy    : {format_rate(b_fla, 'localization_accuracy', 'matched_count', 'failed_cases_total')}")
+    print("SUITE METRICS (Counts & Denominators):")
+    print(f"  {'Metric':<24} | {'Baseline':<18} | {'Candidate':<18}")
+    for label, metric_key, rate_key, count_key, total_key in METRIC_ROWS:
+        b_val = format_rate(baseline_report.metrics.get(metric_key, {}), rate_key, count_key, total_key)
+        c_val = format_rate(fastfail_report.metrics.get(metric_key, {}), rate_key, count_key, total_key)
+        print(f"  {label:<24} | {b_val:<18} | {c_val:<18}")
     print("-" * 80)
 
     # Case Outcomes
@@ -165,7 +170,7 @@ def main():
         with col_btn:
             st.write("")
             st.write("")
-            run_btn = st.button("Run 6 Cases", type="primary", use_container_width=True)
+            run_btn = st.button("Run 6 Cases", type="primary", width="stretch")
 
         if run_btn:
             cfg = get_default_config() if "v1.0.0" in selected_agent_type else get_baseline_fast_fail_config()
@@ -205,7 +210,7 @@ def main():
                     "Observed Tool Calls": ev.details.get("observed_tool_calls", 0),
                     "Evidence Count": len(ev.evidence_event_ids),
                 })
-            st.dataframe(rows, use_container_width=True)
+            st.dataframe(rows, width="stretch")
 
     # -------------------------------------------------------------------------
     # TAB 2: RESULTS & TRACES
@@ -249,7 +254,7 @@ def main():
                         "Error Code": ev.error_code or "-",
                         "Event ID": ev.event_id,
                     })
-                st.dataframe(ev_table, use_container_width=True)
+                st.dataframe(ev_table, width="stretch")
 
                 with st.expander("Inspect Raw Event Payloads"):
                     for ev in run_trace.events:
@@ -295,7 +300,7 @@ def main():
 
             col_diag_btn, col_prop_btn = st.columns(2)
             with col_diag_btn:
-                do_diag = st.button("Run Read-Only Diagnosis", use_container_width=True)
+                do_diag = st.button("Run Read-Only Diagnosis", width="stretch")
 
             if do_diag or "current_diagnosis" not in st.session_state or st.session_state.get("diag_run_id") != target_run_id:
                 try:
@@ -327,6 +332,14 @@ def main():
                             candidate = coordinator.propose_candidate_from_diagnosis(target_run_id, diag)
                             trial = coordinator.execute_repair_trial(candidate)
                             st.session_state["current_trial_result"] = trial
+                        except ValueError as ex:
+                            if "No allowlisted repair" in str(ex):
+                                st.warning(
+                                    f"{ex} Autofix only changes allowlisted settings, so this failure "
+                                    "needs a manual review. Follow the recommended next step above."
+                                )
+                            else:
+                                st.error(f"Candidate generation or trial execution failed: {ex}")
                         except Exception as ex:
                             st.error(f"Candidate generation or trial execution failed: {ex}")
 
@@ -354,7 +367,7 @@ def main():
                     st.error(f"**Trial Blocked:** {trial.decision_reason}")
 
                 st.markdown("#### Regression Suite Comparison (6 Cases)")
-                st.dataframe(trial.comparison_report.case_comparisons, use_container_width=True)
+                st.dataframe(trial.comparison_report.case_comparisons, width="stretch")
 
                 # Human Approval Gate
                 st.markdown("### Human Review & Approval Gate")
@@ -362,13 +375,13 @@ def main():
 
                 h_col1, h_col2 = st.columns(2)
                 with h_col1:
-                    if st.button("✅ Approve Candidate", use_container_width=True, disabled=not trial.is_acceptable):
+                    if st.button("✅ Approve Candidate", width="stretch", disabled=not trial.is_acceptable):
                         approved_cand = coordinator.record_human_decision(cand, ApprovalStatus.APPROVED)
                         st.session_state["decision_record"] = ("APPROVED", approved_cand.repair_id)
                         st.success(f"Candidate {approved_cand.repair_id} marked as APPROVED by human reviewer.")
 
                 with h_col2:
-                    if st.button("❌ Reject Candidate", use_container_width=True):
+                    if st.button("❌ Reject Candidate", width="stretch"):
                         rejected_cand = coordinator.record_human_decision(cand, ApprovalStatus.REJECTED)
                         st.session_state["decision_record"] = ("REJECTED", rejected_cand.repair_id)
                         st.info(f"Candidate {rejected_cand.repair_id} marked as REJECTED.")
@@ -403,7 +416,7 @@ def main():
             m2.metric("Safety Gate", comp.safety_status)
             m3.metric("Regressions", f"{comp.regression_rate.get('regressed_count', 0)}/{comp.regression_rate.get('baseline_passed_count', 0)}")
 
-            st.dataframe(comp.case_comparisons, use_container_width=True)
+            st.dataframe(comp.case_comparisons, width="stretch")
 
 
 if __name__ == "__main__":

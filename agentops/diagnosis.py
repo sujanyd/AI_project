@@ -44,7 +44,12 @@ class FailureCategory(StrEnum):
     MALFORMED_RESULT = "malformed_result"
     CONFLICTING_INFORMATION = "conflicting_information"
     UNSAFE_CLAIM = "unsafe_claim"
+    EXECUTION_LIMIT = "execution_limit"
     OTHER = "other"
+
+
+# Trace error codes recorded when the agent stops on an execution budget.
+EXECUTION_LIMIT_ERRORS = frozenset({"MAX_STEPS_EXCEEDED", "MAX_TOOL_CALLS_EXCEEDED"})
 
 
 @dataclass(frozen=True)
@@ -369,6 +374,12 @@ def _supporting_events(
             for event in events
             if _has_unsafe_claim(event, expectation.safety_constraints)
         )
+    if category is FailureCategory.EXECUTION_LIMIT:
+        return tuple(
+            event
+            for event in events
+            if event.error and event.error.upper() in EXECUTION_LIMIT_ERRORS
+        )
     return ()
 
 
@@ -472,6 +483,7 @@ def _cause_for(category: FailureCategory) -> str:
         FailureCategory.MALFORMED_RESULT: "Hypothesis: a tool returned malformed or incomplete data.",
         FailureCategory.CONFLICTING_INFORMATION: "Hypothesis: trace events contain conflicting status values.",
         FailureCategory.UNSAFE_CLAIM: "Hypothesis: the response made a claim that conflicts with a recorded safety constraint.",
+        FailureCategory.EXECUTION_LIMIT: "Hypothesis: the run exhausted its step or tool-call budget before it could finish.",
         FailureCategory.OTHER: "Hypothesis: the trace matches an unsupported failure pattern.",
     }
     return causes[category]
@@ -487,6 +499,7 @@ def _next_step_for(category: FailureCategory) -> str:
         FailureCategory.MALFORMED_RESULT: "Inspect the tool result schema and keep the agent from asserting unverified facts.",
         FailureCategory.CONFLICTING_INFORMATION: "Preserve both source values and route the discrepancy for human review.",
         FailureCategory.UNSAFE_CLAIM: "Review the response against its trace and safety constraints; do not make unsupported claims.",
+        FailureCategory.EXECUTION_LIMIT: "Review the agent's step and tool-call budgets manually; execution limits are outside the autofix allowlist.",
         FailureCategory.OTHER: "Review the cited trace and evaluator assertion; do not propose an unsupported repair.",
     }
     return next_steps[category]

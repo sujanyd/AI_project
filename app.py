@@ -200,7 +200,7 @@ def main():
 
     st.set_page_config(
         page_title="AgentOps: Evaluation, Observability & Safe Self-Repair",
-        page_icon="🛡️",
+        page_icon="◼",
         layout="wide",
     )
     st.markdown(ui.CSS, unsafe_allow_html=True)
@@ -209,7 +209,7 @@ def main():
         st.markdown(fragment, unsafe_allow_html=True)
 
     # Sidebar configuration
-    st.sidebar.markdown("### 🛡️ Mission Control")
+    st.sidebar.markdown("### AgentOps")
     db_path = st.sidebar.text_input("SQLite Database Path", value=DEFAULT_DB_PATH)
     init_db(db_path)
 
@@ -246,19 +246,19 @@ def main():
 
     # Navigation Tabs
     tab_eval, tab_traces, tab_autofix, tab_baseline = st.tabs([
-        "▶ Run & Evaluate",
-        "⌁ Traces",
-        "⚙ Diagnose & Autofix",
-        "⚖ Compare",
+        "Run & Evaluate",
+        "Traces",
+        "Diagnose & Autofix",
+        "Compare",
     ])
 
     # -------------------------------------------------------------------------
     # TAB 1: RUN EVALUATION
     # -------------------------------------------------------------------------
     with tab_eval:
-        html(ui.section("Step 1 · Choose & run", "Pick an agent setup, then run all six cases"))
+        html(ui.section("Step 1", "Choose a setup and run the six cases"))
 
-        col_cfg, col_btn = st.columns([3, 1], vertical_alignment="bottom")
+        col_cfg, col_btn = st.columns([3, 1.1], vertical_alignment="bottom")
         with col_cfg:
             selected_agent_type = st.selectbox(
                 "Choose Agent Configuration",
@@ -273,7 +273,7 @@ def main():
                 agent = SupportAgent(config=cfg)
                 report = run_suite_evaluation(agent=agent, db_path=db_path)
                 st.session_state["latest_suite_report"] = report
-            st.toast(f"{cfg.version}: {report.passed_cases}/{report.total_cases} cases passed", icon="✅" if report.passed_cases == report.total_cases else "⚠️")
+            st.toast(f"{cfg.version}: {report.passed_cases}/{report.total_cases} cases passed")
             snapshot = store_snapshot()
 
         rep: Optional[SuiteReport] = st.session_state.get("latest_suite_report")
@@ -285,9 +285,9 @@ def main():
                 "Every case met its expected outcome." if all_passed
                 else "Some cases failed. Open “Diagnose & Autofix” to find the failing step and test a fix.",
             ))
-            html(ui.section("Step 2 · Measure", "The six measures from the spec"))
+            html(ui.section("Step 2", "Measures"))
             html(ui.metric_rings(rep.metrics))
-            html(ui.section("Step 3 · Inspect", "Case by case"))
+            html(ui.section("Step 3", "Cases"))
             html(ui.case_grid(rep.evaluations, case_descriptions))
             with st.expander("Table view"):
                 st.dataframe(
@@ -313,7 +313,7 @@ def main():
     # TAB 2: RESULTS & TRACES
     # -------------------------------------------------------------------------
     with tab_traces:
-        html(ui.section("Observability", "Every plan, tool call and result, in order"))
+        html(ui.section("Observability", "Run traces"))
         runs = snapshot["runs"]
         if not runs:
             st.info("No runs found in the trace database yet. Run an evaluation first.")
@@ -337,7 +337,7 @@ def main():
                     st.caption(f"Linked baseline run: `{r_info.baseline_run_id}`")
 
                 html(ui.output_bubble(r_info.final_output, r_info.status))
-                html(ui.section("Timeline", f"{len(run_trace.events)} trace events"))
+                html(ui.section("Event log", f"{len(run_trace.events)} events"))
                 html(ui.trace_timeline(run_trace.events))
 
                 with st.expander("Table view & raw payloads"):
@@ -369,7 +369,7 @@ def main():
     # TAB 3: DIAGNOSIS & SAFE AUTOFIX (Human Approval Gate)
     # -------------------------------------------------------------------------
     with tab_autofix:
-        html(ui.section("Diagnose → fix on a copy → you decide", "Trace-based diagnosis & safe autofix"))
+        html(ui.section("Diagnosis", "Find the failing step"))
 
         coordinator = AutofixCoordinator(db_path=db_path)
         failed_run_items = snapshot["failed"]
@@ -385,7 +385,7 @@ def main():
             # selected across reruns so its trial and the approval buttons stay in place.
             if st.session_state.get("selected_failed_run") not in failed_labels:
                 st.session_state["selected_failed_run"] = next(iter(failed_labels))
-            col_sel, col_diag_btn = st.columns([4, 1], vertical_alignment="bottom")
+            col_sel, col_diag_btn = st.columns([2.6, 1.4], vertical_alignment="bottom")
             with col_sel:
                 target_run_id = st.selectbox(
                     "Select Failed Run to Diagnose",
@@ -394,7 +394,7 @@ def main():
                     key="selected_failed_run",
                 )
             with col_diag_btn:
-                do_diag = st.button("Run Read-Only Diagnosis", width="stretch")
+                do_diag = st.button("Run Diagnosis", width="stretch")
 
             if do_diag or "current_diagnosis" not in st.session_state or st.session_state.get("diag_run_id") != target_run_id:
                 try:
@@ -441,8 +441,9 @@ def main():
                 html(ui.section("Proposed fix", f"Candidate {cand.repair_id}"))
                 html(ui.diff_card(cand.setting_path, cand.old_value, cand.new_value, cand.rationale))
 
-                html(ui.section("Re-test on the same cases", "Isolated trial gates"))
-                g1, g2, g3, g4 = st.columns(4)
+                html(ui.section("Re-test on the same six cases", "Trial gates"))
+                g1, g2 = st.columns(2)
+                g3, g4 = st.columns(2)
                 g1.metric("Failed Case Retest", "PASS" if trial.retest_passed else "FAIL")
                 g2.metric("Safety Gate Status", "PASS" if trial.safety_passed else "FAIL")
                 g3.metric("Regression Gate Status", trial.comparison_report.verdict)
@@ -459,18 +460,17 @@ def main():
                     st.dataframe(trial.comparison_report.case_comparisons, width="stretch", hide_index=True)
 
                 # Human Approval Gate
-                html(ui.section("Human approval gate", "Approve or reject"))
+                html(ui.section("Your decision", "Approve or reject"))
                 st.caption("Approval records your sign-off. The original agent configuration is never changed automatically.")
 
                 h_col1, h_col2 = st.columns(2)
                 with h_col1:
-                    if st.button("✅ Approve Candidate", type="primary", width="stretch", disabled=not trial.is_acceptable):
+                    if st.button("Approve Candidate", type="primary", width="stretch", disabled=not trial.is_acceptable):
                         approved_cand = coordinator.record_human_decision(cand, ApprovalStatus.APPROVED)
                         st.session_state["decision_record"] = ("APPROVED", approved_cand.repair_id)
-                        st.balloons()
                         snapshot = store_snapshot()
                 with h_col2:
-                    if st.button("❌ Reject Candidate", width="stretch"):
+                    if st.button("Reject Candidate", width="stretch"):
                         rejected_cand = coordinator.record_human_decision(cand, ApprovalStatus.REJECTED)
                         st.session_state["decision_record"] = ("REJECTED", rejected_cand.repair_id)
                         snapshot = store_snapshot()

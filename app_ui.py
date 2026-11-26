@@ -1,6 +1,6 @@
 """
-Visual layer for the AgentOps Streamlit app: the theme stylesheet and small HTML
-builders (hero, pipeline tracker, metric rings, case grid, trace timeline, fix diff).
+Visual layer for the AgentOps Streamlit app: a restrained, monochrome stylesheet and
+small HTML builders (header, pipeline, measures, case list, trace log, fix diff).
 
 Every builder returns an HTML string and escapes all data it shows, so the app
 renders them with st.markdown(..., unsafe_allow_html=True) without trusting trace text.
@@ -10,279 +10,226 @@ from __future__ import annotations
 
 import json
 from html import escape
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, Optional, Sequence, Tuple
 
-# ── Palette ──────────────────────────────────────────────────────────────────
-CYAN = "#22d3ee"
-VIOLET = "#a78bfa"
-PINK = "#f472b6"
-GREEN = "#34d399"
-RED = "#fb7185"
+# ── Palette: near-black neutrals, one quiet accent, muted status colours ─────
+TEXT = "#ededed"
+MUTED = "#8a8a8a"
+FAINT = "#5c5c5c"
+GREEN = "#4ade80"
+RED = "#f87171"
 AMBER = "#fbbf24"
-MUTED = "#8b8fa8"
+BLUE = "#7aa2ff"
 
 PIPELINE_STAGES: Tuple[Tuple[str, str, str], ...] = (
-    ("run", "Run", "6 synthetic cases"),
-    ("trace", "Trace", "every step saved"),
-    ("evaluate", "Evaluate", "scored vs expected"),
-    ("diagnose", "Diagnose", "read-only, cites events"),
-    ("autofix", "Autofix", "tested on a copy"),
-    ("approve", "Approve", "a person decides"),
+    ("run", "Run", "Six synthetic cases"),
+    ("trace", "Trace", "Every step recorded"),
+    ("evaluate", "Evaluate", "Scored against expected"),
+    ("diagnose", "Diagnose", "Read-only, cites events"),
+    ("autofix", "Autofix", "Tested on a copy"),
+    ("approve", "Approve", "A person decides"),
 )
 
-STAGE_ICONS = {
-    "run": "▶",
-    "trace": "⌁",
-    "evaluate": "◎",
-    "diagnose": "⌕",
-    "autofix": "⚙",
-    "approve": "✓",
-}
-
 EVENT_COLORS = {
-    "PLANNING": VIOLET,
-    "TOOL_CALL": CYAN,
-    "TOOL_RESULT": CYAN,
-    "OBSERVATION": "#60a5fa",
+    "PLANNING": MUTED,
+    "TOOL_CALL": BLUE,
+    "TOOL_RESULT": BLUE,
+    "OBSERVATION": MUTED,
     "VALIDATION": GREEN,
     "ERROR": RED,
     "SAFE_STOP": AMBER,
-    "FINAL_STATUS": PINK,
+    "FINAL_STATUS": TEXT,
 }
 
 
 CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 :root {
-  --ao-cyan: #22d3ee; --ao-violet: #a78bfa; --ao-pink: #f472b6;
-  --ao-green: #34d399; --ao-red: #fb7185; --ao-amber: #fbbf24;
-  --ao-muted: #8b8fa8; --ao-panel: rgba(255,255,255,0.035);
-  --ao-border: rgba(167,139,250,0.18);
+  --bg: #0a0a0a; --panel: #111111; --panel-2: #161616;
+  --line: #222222; --line-2: #2e2e2e;
+  --text: #ededed; --muted: #8a8a8a; --faint: #5c5c5c;
+  --green: #4ade80; --red: #f87171; --amber: #fbbf24; --blue: #7aa2ff;
+  --radius: 10px;
 }
 
-html, body, [class*="css"], .stMarkdown, .stText, button, input, textarea {
-  font-family: 'Space Grotesk', ui-sans-serif, system-ui, -apple-system, sans-serif !important;
+html, body, [class*="css"], .stMarkdown, button, input, textarea, select {
+  font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif !important;
+  -webkit-font-smoothing: antialiased;
 }
-code, pre, .ao-mono { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace !important; }
+code, pre, .mono { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace !important; }
 
-/* Living background: aurora glows over a faint grid (all in one background, nothing overlays content) */
-.stApp {
-  background:
-    radial-gradient(1200px 600px at 10% -10%, rgba(34,211,238,0.14), transparent 60%),
-    radial-gradient(900px 500px at 95% 0%, rgba(167,139,250,0.16), transparent 60%),
-    radial-gradient(800px 600px at 50% 120%, rgba(244,114,182,0.10), transparent 60%),
-    linear-gradient(rgba(255,255,255,0.022) 1px, transparent 1px) 0 0 / 44px 44px,
-    linear-gradient(90deg, rgba(255,255,255,0.022) 1px, transparent 1px) 0 0 / 44px 44px,
-    #06060c;
-  background-attachment: fixed;
-}
+.stApp { background: var(--bg); }
 header[data-testid="stHeader"] { background: transparent; }
-.block-container { padding-top: 2.2rem; max-width: 1320px; }
+.block-container { padding-top: 2.6rem; padding-bottom: 4rem; max-width: 1180px; }
 
-/* Title → animated gradient wordmark */
-h1 {
-  font-weight: 700 !important; letter-spacing: -0.03em;
-  background: linear-gradient(92deg, #e6e8f2 0%, var(--ao-cyan) 30%, var(--ao-violet) 60%, var(--ao-pink) 85%, #e6e8f2 100%);
-  background-size: 250% auto;
-  -webkit-background-clip: text; background-clip: text; color: transparent !important;
-  animation: ao-shimmer 9s linear infinite;
-}
-@keyframes ao-shimmer { to { background-position: 250% center; } }
-h2, h3, h4 { letter-spacing: -0.02em; }
+h1 { font-weight: 600 !important; letter-spacing: -0.035em; font-size: 2.1rem !important; color: var(--text) !important; }
+h2, h3, h4 { font-weight: 600 !important; letter-spacing: -0.02em; color: var(--text); }
+p, li { color: #d4d4d4; }
+
+/* Hide heading anchor icons for a cleaner read */
+[data-testid="stHeaderActionElements"] { display: none !important; }
 
 /* Sidebar */
-section[data-testid="stSidebar"] {
-  background: linear-gradient(180deg, rgba(14,15,26,0.96), rgba(8,8,16,0.98));
-  border-right: 1px solid var(--ao-border);
-}
+section[data-testid="stSidebar"] { background: #0c0c0c; border-right: 1px solid var(--line); }
+section[data-testid="stSidebar"] h3 { font-size: .95rem !important; letter-spacing: -0.01em; }
 
-/* Tabs → glowing pills */
-.stTabs [role="tablist"] {
-  gap: 6px; padding: 6px; border-radius: 16px;
-  background: var(--ao-panel); border: 1px solid var(--ao-border);
-}
-.stTabs [role="tablist"] { display: inline-flex; width: auto; margin-bottom: 1rem; }
+/* Tabs: plain text with a thin underline on the active one */
+.stTabs [role="tablist"] { gap: 28px; border-bottom: 1px solid var(--line); margin-bottom: 1.6rem; }
 .stTabs [role="tab"] {
-  border-radius: 11px; padding: 9px 20px !important; height: auto; font-weight: 600; color: var(--ao-muted);
-  transition: all .2s ease; border: none !important;
+  padding: 10px 0 !important; height: auto; background: transparent !important; border: none !important;
+  border-bottom: 1px solid transparent !important; margin-bottom: -1px; border-radius: 0;
 }
-.stTabs [role="tab"] p { font-size: .95rem !important; font-weight: 600; }
-.stTabs [role="tab"]:hover { color: #fff; background: rgba(255,255,255,0.04); }
-.stTabs [role="tab"][aria-selected="true"] {
-  color: #06060c !important;
-  background: linear-gradient(92deg, var(--ao-cyan), var(--ao-violet));
-  box-shadow: 0 0 24px rgba(34,211,238,0.35);
-}
-.stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] { display: none; }
-.stTabs [role="tab"][aria-selected="true"] p { color: #06060c !important; }
-.stTabs .react-aria-SelectionIndicator, .stTabs [role="tablist"]::after { display: none !important; }
+.stTabs [role="tab"] p { font-size: .9rem !important; font-weight: 500; color: var(--muted); transition: color .15s ease; }
+.stTabs [role="tab"]:hover p { color: var(--text); }
+.stTabs [role="tab"][aria-selected="true"] { border-bottom-color: var(--text) !important; }
+.stTabs [role="tab"][aria-selected="true"] p { color: var(--text); }
+.stTabs .react-aria-SelectionIndicator, .stTabs [role="tablist"]::after,
+.stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] { display: none !important; }
 
-/* Buttons */
+/* Buttons: primary is solid white, secondary is a quiet outline */
 .stButton > button {
-  border-radius: 12px; font-weight: 600; border: 1px solid var(--ao-border);
-  background: rgba(255,255,255,0.04); transition: transform .15s ease, box-shadow .2s ease;
+  white-space: nowrap;
+  border-radius: 8px; font-weight: 500; font-size: .88rem; padding: .5rem 1rem;
+  background: transparent; color: var(--text); border: 1px solid var(--line-2);
+  box-shadow: none; transition: background .15s ease, border-color .15s ease;
 }
-.stButton > button:hover { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(167,139,250,0.25); border-color: var(--ao-violet); }
-.stButton > button[kind="primary"] {
-  color: #06060c; border: none;
-  background: linear-gradient(92deg, var(--ao-cyan), var(--ao-violet) 55%, var(--ao-pink));
-  background-size: 200% auto; animation: ao-shimmer 6s linear infinite;
-  box-shadow: 0 0 28px rgba(34,211,238,0.35);
-}
+.stButton > button:hover { background: var(--panel-2); border-color: #3a3a3a; color: var(--text); }
+.stButton > button[kind="primary"] { background: var(--text); color: #0a0a0a; border-color: var(--text); }
+.stButton > button[kind="primary"]:hover { background: #ffffff; color: #0a0a0a; }
+.stButton > button[kind="primary"] p { color: #0a0a0a; }
+.stButton > button:disabled { opacity: .35; }
 
-/* Native metrics → glass cards */
-div[data-testid="stMetric"] {
-  background: var(--ao-panel); border: 1px solid var(--ao-border); border-radius: 16px;
-  padding: 14px 16px; backdrop-filter: blur(8px);
-}
-div[data-testid="stMetricLabel"] p { color: var(--ao-muted) !important; text-transform: uppercase; letter-spacing: .08em; font-size: .72rem !important; }
-div[data-testid="stMetricValue"] { font-weight: 700; }
+/* Native metrics */
+div[data-testid="stMetric"] { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; }
+div[data-testid="stMetricLabel"] p { color: var(--muted) !important; font-size: .78rem !important; font-weight: 500; }
+div[data-testid="stMetricValue"] { font-weight: 600; font-size: 1.55rem !important; letter-spacing: -0.02em; }
 
-/* Inputs, dataframes, expanders, alerts */
-div[data-baseweb="select"] > div, .stTextInput input { border-radius: 12px !important; }
-div[data-testid="stDataFrame"], div[data-testid="stExpander"] { border-radius: 14px; overflow: hidden; border: 1px solid var(--ao-border); }
-div[data-testid="stAlert"] { border-radius: 14px; backdrop-filter: blur(6px); }
+/* Inputs, tables, expanders, alerts */
+div[data-baseweb="select"] > div, .stTextInput input { border-radius: 8px !important; background: var(--panel) !important; border-color: var(--line-2) !important; }
+div[data-testid="stDataFrame"] { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+div[data-testid="stExpander"] details { border: 1px solid var(--line) !important; border-radius: var(--radius) !important; background: transparent; }
+div[data-testid="stExpander"] summary p { font-size: .88rem; color: var(--muted); }
+div[data-testid="stAlert"] { border-radius: var(--radius); }
+div[data-testid="stAlert"] > div { background: var(--panel) !important; border: 1px solid var(--line); border-radius: var(--radius); color: var(--text) !important; }
+div[data-testid="stAlertContentInfo"] p, div[data-testid="stAlertContentSuccess"] p,
+div[data-testid="stAlertContentWarning"] p, div[data-testid="stAlertContentError"] p { color: var(--text) !important; }
+div[data-testid="stAlert"]:has([data-testid="stAlertContentSuccess"]) > div { border-left: 2px solid var(--green); }
+div[data-testid="stAlert"]:has([data-testid="stAlertContentWarning"]) > div { border-left: 2px solid var(--amber); }
+div[data-testid="stAlert"]:has([data-testid="stAlertContentError"]) > div { border-left: 2px solid var(--red); }
+div[data-testid="stAlert"]:has([data-testid="stAlertContentInfo"]) > div { border-left: 2px solid var(--blue); }
 
 /* ── Custom components ─────────────────────────────────────────────── */
-.ao-tagline { color: var(--ao-muted); margin: -0.6rem 0 1.1rem 0; font-size: 1.02rem; }
-.ao-tagline b { color: #e6e8f2; font-weight: 600; }
-.ao-chiprow { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 1.2rem; }
-.ao-chip {
-  display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px;
-  font-size: .78rem; font-weight: 600; border: 1px solid var(--ao-border); background: var(--ao-panel); color: #cfd3e6;
-}
-.ao-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ao-green); box-shadow: 0 0 10px var(--ao-green); animation: ao-pulse 1.8s ease-in-out infinite; }
-@keyframes ao-pulse { 50% { opacity: .35; transform: scale(.8); } }
+.ao-sub { color: var(--muted); font-size: .98rem; max-width: 640px; margin: -0.4rem 0 1.4rem 0; line-height: 1.55; }
+.ao-stats { display: flex; gap: 28px; margin: 0 0 1.8rem 0; padding: 0; }
+.ao-stat { display: flex; flex-direction: column; gap: 2px; }
+.ao-stat b { font-size: 1.15rem; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+.ao-stat span { font-size: .76rem; color: var(--muted); }
 
-/* Pipeline tracker */
-.ao-pipeline {
-  display: grid; grid-template-columns: repeat(6, 1fr); gap: 0; margin: .2rem 0 1.6rem 0;
-  padding: 18px 14px; border-radius: 20px; background: var(--ao-panel); border: 1px solid var(--ao-border);
-  position: relative; overflow: hidden;
-}
-.ao-stage { position: relative; text-align: center; padding: 0 4px; }
-.ao-stage:not(:last-child)::after {
-  content: ""; position: absolute; top: 22px; left: calc(50% + 26px); width: calc(100% - 52px); height: 2px;
-  background: rgba(255,255,255,0.08); border-radius: 2px;
-}
-.ao-stage.done:not(:last-child)::after {
-  background: linear-gradient(90deg, var(--ao-cyan), var(--ao-violet));
-  background-size: 200% 100%; animation: ao-flow 2.4s linear infinite;
-  box-shadow: 0 0 12px rgba(34,211,238,0.5);
-}
-@keyframes ao-flow { to { background-position: -200% 0; } }
-.ao-node {
-  width: 44px; height: 44px; margin: 0 auto 8px auto; border-radius: 14px; display: grid; place-items: center;
-  font-size: 1.15rem; font-weight: 700; color: var(--ao-muted);
-  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
-  transition: all .3s ease;
-}
-.ao-stage.done .ao-node { color: #06060c; background: linear-gradient(135deg, var(--ao-cyan), var(--ao-violet)); border: none; box-shadow: 0 0 22px rgba(34,211,238,0.45); }
-.ao-stage.active .ao-node { color: #fff; border: 1px solid var(--ao-cyan); box-shadow: 0 0 0 0 rgba(34,211,238,.6); animation: ao-ring 1.6s ease-out infinite; }
-.ao-stage.blocked .ao-node { color: #06060c; background: var(--ao-red); border: none; box-shadow: 0 0 22px rgba(251,113,133,0.5); }
-@keyframes ao-ring { 0% { box-shadow: 0 0 0 0 rgba(34,211,238,.55); } 100% { box-shadow: 0 0 0 14px rgba(34,211,238,0); } }
-.ao-stage-name { font-weight: 700; font-size: .92rem; color: #e6e8f2; }
-.ao-stage.idle .ao-stage-name { color: var(--ao-muted); }
-.ao-stage-sub { font-size: .72rem; color: var(--ao-muted); margin-top: 2px; }
+/* Pipeline: numbered steps with a hairline status bar */
+.ao-pipeline { display: grid; grid-template-columns: repeat(6, 1fr); border: 1px solid var(--line); border-radius: var(--radius); margin: 0 0 2rem 0; overflow: hidden; }
+.ao-stage { padding: 14px 16px; border-right: 1px solid var(--line); background: var(--panel); position: relative; }
+.ao-stage:last-child { border-right: none; }
+.ao-stage::after { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: transparent; }
+.ao-stage.done::after { background: var(--text); }
+.ao-stage.active::after { background: var(--blue); }
+.ao-stage.blocked::after { background: var(--red); }
+.ao-node { font-family: 'JetBrains Mono', monospace; font-size: .72rem; color: var(--faint); margin-bottom: 6px; display: flex; justify-content: space-between; }
+.ao-node i { font-style: normal; font-family: 'Inter', sans-serif; }
+.ao-stage.done .ao-node i { color: var(--text); }
+.ao-stage.active .ao-node i { color: var(--blue); }
+.ao-stage.blocked .ao-node i { color: var(--red); }
+.ao-stage-name { font-weight: 600; font-size: .9rem; color: var(--text); }
+.ao-stage.idle .ao-stage-name { color: var(--muted); }
+.ao-stage-sub { font-size: .74rem; color: var(--muted); margin-top: 2px; }
 
 /* Section header */
-.ao-section { display: flex; flex-direction: column; gap: 2px; margin: 1.3rem 0 .7rem 0; }
-.ao-section h3 { margin: 0; font-size: 1.25rem; }
-.ao-kicker { font-size: .72rem; letter-spacing: .14em; text-transform: uppercase; color: var(--ao-cyan); font-weight: 700; }
+.ao-section { margin: 1.9rem 0 .8rem 0; }
+.ao-kicker { display: block; font-size: .72rem; color: var(--muted); font-weight: 500; margin-bottom: 4px; }
+.ao-section h3 { margin: 0; padding: 0; font-size: 1.12rem !important; }
 
-/* Metric rings */
-.ao-rings { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin: .4rem 0 1.2rem 0; }
-.ao-ring-card {
-  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; padding: 18px 12px; border-radius: 18px;
-  background: var(--ao-panel); border: 1px solid var(--ao-border); position: relative; overflow: hidden;
-}
-.ao-ring-card::before { content: ""; position: absolute; inset: 0; background: radial-gradient(160px 80px at 0% 0%, var(--glow), transparent 70%); opacity: .18; }
-.ao-ring {
-  --p: 0; width: 84px; height: 84px; flex: 0 0 84px; border-radius: 50%; position: relative;
-  background: conic-gradient(var(--c) calc(var(--p) * 1%), rgba(255,255,255,0.07) 0);
-  animation: ao-fill 1.1s cubic-bezier(.2,.8,.2,1) both;
-}
-.ao-ring::after { content: ""; position: absolute; inset: 8px; border-radius: 50%; background: #0b0c16; }
-.ao-ring span { position: absolute; inset: 0; display: grid; place-items: center; z-index: 1; font-weight: 700; font-size: 1.05rem; color: #fff; }
-@property --p { syntax: '<number>'; inherits: false; initial-value: 0; }
-@keyframes ao-fill { from { --p: 0; } }
-.ao-ring-label { font-size: .7rem; letter-spacing: .1em; text-transform: uppercase; color: var(--ao-muted); font-weight: 700; }
-.ao-ring-value { font-size: 1.05rem; font-weight: 700; color: #fff; margin-top: 2px; }
-.ao-ring-hint { font-size: .72rem; color: var(--ao-muted); }
+/* Measures */
+.ao-rings { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; margin: .2rem 0 1rem 0; }
+.ao-ring-card { padding: 16px 18px; border-right: 1px solid var(--line); background: var(--panel); }
+.ao-ring-card:last-child { border-right: none; }
+.ao-ring-label { font-size: .76rem; color: var(--muted); font-weight: 500; }
+.ao-ring-value { font-size: 1.6rem; font-weight: 600; letter-spacing: -0.03em; color: var(--text); margin: 6px 0 2px 0; font-variant-numeric: tabular-nums; }
+.ao-ring-hint { font-size: .74rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ao-bar { height: 3px; border-radius: 3px; background: var(--line); margin-top: 12px; overflow: hidden; }
+.ao-bar i { display: block; height: 100%; background: var(--c); border-radius: 3px; }
 
-/* Case grid */
-.ao-cases { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: .4rem 0 1rem 0; }
-.ao-case {
-  padding: 14px 16px; border-radius: 16px; background: var(--ao-panel); border: 1px solid var(--ao-border);
-  position: relative; overflow: hidden; animation: ao-rise .5s ease both;
-}
-.ao-case::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--accent); box-shadow: 0 0 14px var(--accent); }
-@keyframes ao-rise { from { opacity: 0; transform: translateY(8px); } }
-.ao-case-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.ao-case-id { font-family: 'JetBrains Mono', monospace; font-size: .78rem; color: #cfd3e6; }
-.ao-badge { font-size: .7rem; font-weight: 700; padding: 3px 9px; border-radius: 999px; letter-spacing: .05em; }
-.ao-badge.pass { color: #052e22; background: var(--ao-green); box-shadow: 0 0 14px rgba(52,211,153,.45); }
-.ao-badge.fail { color: #3b0714; background: var(--ao-red); box-shadow: 0 0 14px rgba(251,113,133,.45); }
-.ao-case-desc { font-size: .84rem; color: #e6e8f2; margin: 8px 0 10px 0; line-height: 1.35; }
-.ao-case-meta { display: flex; flex-wrap: wrap; gap: 6px; }
-.ao-tag { font-size: .68rem; padding: 2px 8px; border-radius: 6px; background: rgba(255,255,255,0.06); color: var(--ao-muted); font-family: 'JetBrains Mono', monospace; }
-.ao-tag.hot { color: var(--ao-red); background: rgba(251,113,133,0.1); }
+/* Case list */
+.ao-cases { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; margin: .2rem 0 1rem 0; }
+.ao-case { display: grid; grid-template-columns: 74px 1fr auto; align-items: center; gap: 16px; padding: 13px 18px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.ao-case:last-child { border-bottom: none; }
+.ao-case-id { font-family: 'JetBrains Mono', monospace; font-size: .76rem; color: var(--muted); }
+.ao-case-desc { font-size: .88rem; color: var(--text); }
+.ao-case-meta { display: flex; gap: 6px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
+.ao-badge { display: inline-flex; align-items: center; gap: 6px; font-size: .74rem; font-weight: 500; color: var(--text); min-width: 42px; }
+.ao-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--c); }
+.ao-badge.pass { --c: var(--green); }
+.ao-badge.fail { --c: var(--red); }
+.ao-tag { font-size: .7rem; padding: 2px 7px; border-radius: 5px; border: 1px solid var(--line-2); color: var(--muted); font-family: 'JetBrains Mono', monospace; white-space: nowrap; }
+.ao-tag.hot { color: var(--red); border-color: rgba(248,113,113,0.3); }
 
-/* Trace timeline */
-.ao-timeline { position: relative; margin: .6rem 0 1rem 0; padding-left: 30px; }
-.ao-timeline::before { content: ""; position: absolute; left: 10px; top: 6px; bottom: 6px; width: 2px; background: linear-gradient(180deg, var(--ao-cyan), var(--ao-violet), var(--ao-pink)); opacity: .45; }
-.ao-ev { position: relative; margin-bottom: 10px; padding: 10px 14px; border-radius: 14px; background: var(--ao-panel); border: 1px solid rgba(255,255,255,0.07); animation: ao-rise .4s ease both; }
-.ao-ev::before { content: ""; position: absolute; left: -25px; top: 15px; width: 12px; height: 12px; border-radius: 50%; background: var(--c); box-shadow: 0 0 12px var(--c); }
-.ao-ev.err { border-color: rgba(251,113,133,0.45); background: rgba(251,113,133,0.06); }
-.ao-ev-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.ao-ev-seq { font-family: 'JetBrains Mono', monospace; font-size: .72rem; color: var(--ao-muted); }
-.ao-ev-type { font-weight: 700; font-size: .8rem; color: var(--c); letter-spacing: .04em; }
-.ao-ev-detail { font-size: .8rem; color: #cfd3e6; margin-top: 4px; font-family: 'JetBrains Mono', monospace; word-break: break-word; }
-.ao-ev-right { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+/* Trace log */
+.ao-timeline { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; margin: .2rem 0 1rem 0; background: var(--panel); }
+.ao-ev { display: grid; grid-template-columns: 34px 120px 1fr; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); align-items: start; }
+.ao-ev:last-child { border-bottom: none; }
+.ao-ev.err { background: rgba(248,113,113,0.04); }
+.ao-ev-seq { font-family: 'JetBrains Mono', monospace; font-size: .74rem; color: var(--faint); padding-top: 2px; }
+.ao-ev-type { font-family: 'JetBrains Mono', monospace; font-size: .74rem; color: var(--c); padding-top: 2px; }
+.ao-ev-body { min-width: 0; }
+.ao-ev-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ao-ev-detail { font-size: .8rem; color: #cfcfcf; margin-top: 5px; font-family: 'JetBrains Mono', monospace; word-break: break-word; line-height: 1.5; }
 
-/* Output bubble */
-.ao-bubble { padding: 14px 16px; border-radius: 16px 16px 16px 4px; background: linear-gradient(135deg, rgba(34,211,238,0.10), rgba(167,139,250,0.10)); border: 1px solid var(--ao-border); color: #e6e8f2; margin: .4rem 0 1rem 0; }
-.ao-bubble small { display: block; color: var(--ao-muted); font-size: .7rem; letter-spacing: .1em; text-transform: uppercase; margin-bottom: 6px; font-weight: 700; }
+/* Reply */
+.ao-bubble { padding: 14px 18px; border-radius: var(--radius); background: var(--panel); border: 1px solid var(--line); color: var(--text); margin: .6rem 0 1rem 0; font-size: .92rem; line-height: 1.55; }
+.ao-bubble small { display: block; color: var(--muted); font-size: .74rem; margin-bottom: 6px; }
 
-/* Hypothesis card */
-.ao-hypo { padding: 18px 20px; border-radius: 18px; background: linear-gradient(135deg, rgba(167,139,250,0.12), rgba(34,211,238,0.06)); border: 1px solid rgba(167,139,250,0.35); margin: .4rem 0 1rem 0; }
-.ao-hypo h4 { margin: 4px 0 8px 0; font-size: 1.08rem; color: #fff; }
-.ao-hypo p { margin: 0 0 6px 0; color: #cfd3e6; font-size: .9rem; }
-.ao-evi { display: flex; gap: 10px; align-items: flex-start; padding: 8px 12px; margin-top: 6px; border-radius: 10px; background: rgba(0,0,0,0.25); font-size: .78rem; color: #cfd3e6; font-family: 'JetBrains Mono', monospace; }
-.ao-evi b { color: var(--ao-red); }
+/* Diagnosis */
+.ao-hypo { padding: 18px 20px; border-radius: var(--radius); background: var(--panel); border: 1px solid var(--line); margin: .6rem 0 1rem 0; }
+.ao-hypo .ao-h { margin: 0 0 10px 0; font-size: 1rem; font-weight: 600; color: var(--text); }
+.ao-hypo p { margin: 0 0 6px 0; color: #cfcfcf; font-size: .88rem; }
+.ao-evi { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--line); font-size: .78rem; color: #cfcfcf; font-family: 'JetBrains Mono', monospace; }
+.ao-evi:first-of-type { margin-top: 10px; }
+.ao-evi b { color: var(--red); font-weight: 400; }
 
 /* Fix diff */
-.ao-diff { border-radius: 18px; overflow: hidden; border: 1px solid var(--ao-border); margin: .4rem 0 1rem 0; }
-.ao-diff-head { padding: 10px 16px; background: rgba(255,255,255,0.05); font-family: 'JetBrains Mono', monospace; font-size: .8rem; color: var(--ao-cyan); display: flex; justify-content: space-between; }
-.ao-diff-line { padding: 10px 16px; font-family: 'JetBrains Mono', monospace; font-size: .84rem; white-space: pre-wrap; word-break: break-word; }
-.ao-diff-line.del { background: rgba(251,113,133,0.10); color: #fecdd3; }
-.ao-diff-line.add { background: rgba(52,211,153,0.10); color: #bbf7d0; }
-.ao-diff-line .sign { display: inline-block; width: 18px; font-weight: 700; }
-.ao-diff-why { padding: 10px 16px; font-size: .82rem; color: var(--ao-muted); background: rgba(0,0,0,0.2); }
+.ao-diff { border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); margin: .2rem 0 1rem 0; }
+.ao-diff-head { padding: 10px 16px; background: var(--panel-2); font-family: 'JetBrains Mono', monospace; font-size: .78rem; color: var(--text); display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); }
+.ao-diff-head span:last-child { color: var(--muted); font-family: 'Inter', sans-serif; }
+.ao-diff-line { padding: 10px 16px; font-family: 'JetBrains Mono', monospace; font-size: .82rem; white-space: pre-wrap; word-break: break-word; }
+.ao-diff-line.del { background: rgba(248,113,113,0.07); color: #fca5a5; }
+.ao-diff-line.add { background: rgba(74,222,128,0.07); color: #86efac; }
+.ao-diff-line .sign { display: inline-block; width: 18px; opacity: .7; }
+.ao-diff-why { padding: 10px 16px; font-size: .82rem; color: var(--muted); background: var(--panel); border-top: 1px solid var(--line); }
 
-/* Verdict banner */
-.ao-verdict { display: flex; align-items: center; gap: 16px; padding: 18px 22px; border-radius: 18px; margin: .6rem 0 1rem 0; border: 1px solid; }
-.ao-verdict.ok { border-color: rgba(52,211,153,0.45); background: linear-gradient(90deg, rgba(52,211,153,0.14), rgba(34,211,238,0.06)); }
-.ao-verdict.bad { border-color: rgba(251,113,133,0.45); background: linear-gradient(90deg, rgba(251,113,133,0.14), rgba(244,114,182,0.06)); }
-.ao-verdict-icon { width: 46px; height: 46px; border-radius: 14px; display: grid; place-items: center; font-size: 1.4rem; font-weight: 800; color: #06060c; }
-.ao-verdict.ok .ao-verdict-icon { background: var(--ao-green); box-shadow: 0 0 26px rgba(52,211,153,.6); }
-.ao-verdict.bad .ao-verdict-icon { background: var(--ao-red); box-shadow: 0 0 26px rgba(251,113,133,.6); }
-.ao-verdict-title { font-weight: 700; font-size: 1.05rem; color: #fff; }
-.ao-verdict-sub { color: #cfd3e6; font-size: .86rem; }
+/* Verdict */
+.ao-verdict { display: flex; align-items: center; gap: 14px; padding: 14px 18px; border-radius: var(--radius); margin: .8rem 0 1rem 0; border: 1px solid var(--line); background: var(--panel); }
+.ao-verdict-icon { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; }
+.ao-verdict.ok .ao-verdict-icon { background: var(--green); }
+.ao-verdict.bad .ao-verdict-icon { background: var(--red); }
+.ao-verdict-title { font-weight: 600; font-size: .95rem; color: var(--text); }
+.ao-verdict-sub { color: var(--muted); font-size: .85rem; margin-top: 1px; }
 
 /* Sidebar status */
-.ao-side-stat { display: flex; justify-content: space-between; padding: 8px 12px; border-radius: 10px; background: var(--ao-panel); border: 1px solid rgba(255,255,255,0.06); margin-bottom: 6px; font-size: .85rem; }
-.ao-side-stat b { color: var(--ao-cyan); font-family: 'JetBrains Mono', monospace; }
-.ao-guard { font-size: .8rem; color: #cfd3e6; padding: 3px 0; }
-.ao-guard::before { content: "◆ "; color: var(--ao-violet); }
+.ao-side-stat { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: .84rem; color: var(--muted); }
+.ao-side-stat b { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
+.ao-side-head { font-size: .74rem; color: var(--muted); margin: 22px 0 8px 0; }
+.ao-guard { font-size: .82rem; color: #cfcfcf; padding: 4px 0; }
 
 @media (max-width: 1000px) {
   .ao-rings { grid-template-columns: repeat(2, 1fr); }
-  .ao-cases { grid-template-columns: 1fr; }
-  .ao-pipeline { grid-template-columns: repeat(3, 1fr); row-gap: 18px; }
-  .ao-stage:nth-child(3)::after { display: none; }
+  .ao-ring-card { border-bottom: 1px solid var(--line); }
+  .ao-pipeline { grid-template-columns: repeat(3, 1fr); }
+  .ao-stage { border-bottom: 1px solid var(--line); }
+  .ao-case { grid-template-columns: 1fr; gap: 6px; }
+  .ao-case-meta { justify-content: flex-start; }
+  .ao-ev { grid-template-columns: 30px 1fr; }
+  .ao-ev-body { grid-column: 1 / -1; }
+  .ao-stats { flex-wrap: wrap; gap: 18px; }
 }
 </style>
 """
@@ -293,27 +240,30 @@ def _e(value: Any) -> str:
 
 
 def tagline(stats: Dict[str, int]) -> str:
-    chips = [
-        f'<span class="ao-chip"><span class="ao-dot"></span>Local · synthetic data only</span>',
-        f'<span class="ao-chip">⌁ {stats.get("runs", 0)} runs traced</span>',
-        f'<span class="ao-chip">◎ {stats.get("evaluations", 0)} evaluations</span>',
-        f'<span class="ao-chip">✓ {stats.get("decisions", 0)} human decisions</span>',
-    ]
+    items = (
+        ("runs", "Runs traced"),
+        ("evaluations", "Evaluations"),
+        ("failed", "Failed runs"),
+        ("decisions", "Human decisions"),
+    )
+    stats_html = "".join(
+        f'<div class="ao-stat"><b>{stats.get(key, 0)}</b><span>{_e(label)}</span></div>' for key, label in items
+    )
     return (
-        '<div class="ao-tagline">Run a shop-support agent, <b>trace</b> every step, <b>score</b> it, '
-        '<b>pinpoint</b> the failing step, and <b>test a fix on a copy</b> — a person has the final say.</div>'
-        f'<div class="ao-chiprow">{"".join(chips)}</div>'
+        '<div class="ao-sub">Evaluate a shop-support agent on six synthetic cases, trace every step, '
+        'find the failing step, and test a fix on a copy before a person approves it.</div>'
+        f'<div class="ao-stats">{stats_html}</div>'
     )
 
 
 def pipeline(states: Dict[str, str]) -> str:
     """states maps stage key -> 'done' | 'active' | 'blocked' | 'idle'."""
+    marks = {"done": "Done", "active": "Next", "blocked": "Blocked", "idle": ""}
     parts = []
-    for key, name, sub in PIPELINE_STAGES:
+    for i, (key, name, sub) in enumerate(PIPELINE_STAGES, start=1):
         state = states.get(key, "idle")
-        icon = "✕" if state == "blocked" else STAGE_ICONS[key]
         parts.append(
-            f'<div class="ao-stage {state}"><div class="ao-node">{icon}</div>'
+            f'<div class="ao-stage {state}"><div class="ao-node"><span>{i:02d}</span><i>{marks[state]}</i></div>'
             f'<div class="ao-stage-name">{_e(name)}</div><div class="ao-stage-sub">{_e(sub)}</div></div>'
         )
     return f'<div class="ao-pipeline">{"".join(parts)}</div>'
@@ -325,17 +275,17 @@ def section(kicker: str, title: str) -> str:
 
 # (label, metrics key, rate key, count key, total key, higher_is_better, hint)
 RING_METRICS: Tuple[Tuple[str, str, str, str, str, bool, str], ...] = (
-    ("Task Success", "task_success", "task_success_rate", "passed_count", "total_cases", True, "cases passed"),
-    ("Tool Failures", "tool_failures", "tool_failure_rate", "failed_tool_calls", "total_tool_calls", False, "tool calls failed"),
+    ("Task success", "task_success", "task_success_rate", "passed_count", "total_cases", True, "cases passed"),
+    ("Tool failures", "tool_failures", "tool_failure_rate", "failed_tool_calls", "total_tool_calls", False, "tool calls failed"),
     ("Recovery", "recovery", "recovery_rate", "recovered_count", "error_cases_total", True, "errors handled"),
-    ("Safety Violations", "safety_violations", "safety_violation_rate", "violation_count", "total_cases", False, "unsafe answers"),
+    ("Safety violations", "safety_violations", "safety_violation_rate", "violation_count", "total_cases", False, "unsafe answers"),
     ("Localization", "failure_localization", "localization_accuracy", "matched_count", "failed_cases_total", True, "root causes found"),
 )
 
 
 def _ring_color(rate: Optional[float], higher_is_better: bool) -> str:
     if rate is None:
-        return MUTED
+        return FAINT
     good = rate if higher_is_better else 1 - rate
     if good >= 0.8:
         return GREEN
@@ -350,41 +300,37 @@ def metric_rings(metrics: Dict[str, Any]) -> str:
         data = metrics.get(key, {}) or {}
         rate = data.get(rate_key)
         count, total = data.get(count_key, 0), data.get(total_key, 0)
-        color = _ring_color(rate, higher)
         pct = 0 if rate is None else round(rate * 100)
         shown = "N/A" if rate is None else f"{pct}%"
         cards.append(
-            f'<div class="ao-ring-card" style="--glow:{color}">'
-            f'<div class="ao-ring" style="--p:{pct};--c:{color}"><span>{shown}</span></div>'
-            f'<div><div class="ao-ring-label">{_e(label)}</div>'
-            f'<div class="ao-ring-value">{count}/{total}</div>'
-            f'<div class="ao-ring-hint">{_e(hint)}</div></div></div>'
+            f'<div class="ao-ring-card"><div class="ao-ring-label">{_e(label)}</div>'
+            f'<div class="ao-ring-value">{shown}</div>'
+            f'<div class="ao-ring-hint">{count} of {total} {_e(hint)}</div>'
+            f'<div class="ao-bar"><i style="width:{pct}%;--c:{_ring_color(rate, higher)}"></i></div></div>'
         )
     return f'<div class="ao-rings">{"".join(cards)}</div>'
 
 
 def case_grid(evaluations: Iterable[Any], descriptions: Dict[str, str]) -> str:
-    cards = []
-    for i, ev in enumerate(evaluations):
+    rows = []
+    for ev in evaluations:
         passed = bool(ev.passed)
-        accent = GREEN if passed else RED
         category = ev.failure_category.value if getattr(ev, "failure_category", None) else None
         calls = (getattr(ev, "details", None) or {}).get("observed_tool_calls", 0)
-        tags = [f'<span class="ao-tag">{calls} tool call{"s" if calls != 1 else ""}</span>',
-                f'<span class="ao-tag">score {ev.score:.2f}</span>']
+        short_id = "-".join(str(ev.case_id).split("-")[:2])
+        meta = [f'<span class="ao-tag">{calls} call{"s" if calls != 1 else ""}</span>']
         if category:
-            tags.insert(0, f'<span class="ao-tag hot">{_e(category)}</span>')
-        cards.append(
-            f'<div class="ao-case" style="--accent:{accent};animation-delay:{i * 60}ms">'
-            f'<div class="ao-case-top"><span class="ao-case-id">{_e(ev.case_id)}</span>'
-            f'<span class="ao-badge {"pass" if passed else "fail"}">{"PASS" if passed else "FAIL"}</span></div>'
-            f'<div class="ao-case-desc">{_e(descriptions.get(ev.case_id, ""))}</div>'
-            f'<div class="ao-case-meta">{"".join(tags)}</div></div>'
+            meta.insert(0, f'<span class="ao-tag hot">{_e(category)}</span>')
+        meta.append(f'<span class="ao-badge {"pass" if passed else "fail"}">{"Pass" if passed else "Fail"}</span>')
+        rows.append(
+            f'<div class="ao-case" title="{_e(ev.case_id)}"><span class="ao-case-id">{_e(short_id)}</span>'
+            f'<span class="ao-case-desc">{_e(descriptions.get(ev.case_id, ev.case_id))}</span>'
+            f'<span class="ao-case-meta">{"".join(meta)}</span></div>'
         )
-    return f'<div class="ao-cases">{"".join(cards)}</div>'
+    return f'<div class="ao-cases">{"".join(rows)}</div>'
 
 
-def _short_json(raw: Optional[str], limit: int = 160) -> str:
+def _short_json(raw: Optional[str], limit: int = 180) -> str:
     if not raw:
         return ""
     try:
@@ -402,25 +348,24 @@ def _short_json(raw: Optional[str], limit: int = 160) -> str:
 
 def trace_timeline(events: Sequence[Any]) -> str:
     rows = []
-    for i, ev in enumerate(events):
+    for ev in events:
         color = EVENT_COLORS.get(ev.event_type, MUTED)
         is_err = bool(ev.error_code) or ev.status == "ERROR"
         detail = _short_json(ev.output) or _short_json(ev.input)
-        right = []
+        tags = [f'<span class="ao-tag">{_e(ev.stage or "-")}</span>']
         if ev.tool_name:
-            right.append(f'<span class="ao-tag">{_e(ev.tool_name)}</span>')
+            tags.append(f'<span class="ao-tag">{_e(ev.tool_name)}</span>')
         if ev.error_code:
-            right.append(f'<span class="ao-tag hot">{_e(ev.error_code)}</span>')
+            tags.append(f'<span class="ao-tag hot">{_e(ev.error_code)}</span>')
         if ev.duration_ms is not None:
-            right.append(f'<span class="ao-tag">{ev.duration_ms:.1f} ms</span>')
+            tags.append(f'<span class="ao-tag">{ev.duration_ms:.1f} ms</span>')
         rows.append(
-            f'<div class="ao-ev{" err" if is_err else ""}" style="--c:{color};animation-delay:{min(i, 20) * 35}ms">'
-            f'<div class="ao-ev-head"><span class="ao-ev-seq">#{ev.sequence_no:02d}</span>'
+            f'<div class="ao-ev{" err" if is_err else ""}" style="--c:{color}">'
+            f'<span class="ao-ev-seq">{ev.sequence_no:02d}</span>'
             f'<span class="ao-ev-type">{_e(ev.event_type)}</span>'
-            f'<span class="ao-tag">{_e(ev.stage or "-")}</span>'
-            f'<span class="ao-ev-right">{"".join(right)}</span></div>'
+            f'<div class="ao-ev-body"><div class="ao-ev-head">{"".join(tags)}</div>'
             + (f'<div class="ao-ev-detail">{_e(detail)}</div>' if detail else "")
-            + "</div>"
+            + "</div></div>"
         )
     return f'<div class="ao-timeline">{"".join(rows)}</div>'
 
@@ -432,10 +377,9 @@ def output_bubble(text: Optional[str], status: Optional[str]) -> str:
 def hypothesis_card(likely_cause: str, next_step: str, uncertainty: str, facts: Sequence[str]) -> str:
     evidence = "".join(f'<div class="ao-evi"><b>●</b><span>{_e(f)}</span></div>' for f in facts)
     return (
-        '<div class="ao-hypo"><span class="ao-kicker">Read-only diagnosis</span>'
-        f'<h4>{_e(likely_cause)}</h4>'
-        f'<p><b>Next step:</b> {_e(next_step)}</p>'
-        f'<p style="color:#8b8fa8">{_e(uncertainty)}</p>'
+        f'<div class="ao-hypo"><div class="ao-h">{_e(likely_cause)}</div>'
+        f'<p><b>Next step</b> — {_e(next_step)}</p>'
+        f'<p style="color:#8a8a8a">{_e(uncertainty)}</p>'
         f'{evidence}</div>'
     )
 
@@ -443,7 +387,7 @@ def hypothesis_card(likely_cause: str, next_step: str, uncertainty: str, facts: 
 def diff_card(setting_path: str, old: Any, new: Any, rationale: str) -> str:
     return (
         '<div class="ao-diff">'
-        f'<div class="ao-diff-head"><span>{_e(setting_path)}</span><span>applied to a copy only</span></div>'
+        f'<div class="ao-diff-head"><span>{_e(setting_path)}</span><span>Applied to a copy only</span></div>'
         f'<div class="ao-diff-line del"><span class="sign">−</span>{_e(old)}</div>'
         f'<div class="ao-diff-line add"><span class="sign">+</span>{_e(new)}</div>'
         f'<div class="ao-diff-why">{_e(rationale)}</div></div>'
@@ -452,30 +396,25 @@ def diff_card(setting_path: str, old: Any, new: Any, rationale: str) -> str:
 
 def verdict_banner(ok: bool, title: str, subtitle: str) -> str:
     return (
-        f'<div class="ao-verdict {"ok" if ok else "bad"}">'
-        f'<div class="ao-verdict-icon">{"✓" if ok else "✕"}</div>'
+        f'<div class="ao-verdict {"ok" if ok else "bad"}"><span class="ao-verdict-icon"></span>'
         f'<div><div class="ao-verdict-title">{_e(title)}</div><div class="ao-verdict-sub">{_e(subtitle)}</div></div></div>'
     )
 
 
 def sidebar_status(stats: Dict[str, int]) -> str:
-    rows = "".join(
-        f'<div class="ao-side-stat"><span>{_e(label)}</span><b>{stats.get(key, 0)}</b></div>'
-        for label, key in (("Runs traced", "runs"), ("Evaluations", "evaluations"),
-                           ("Failed runs", "failed"), ("Human decisions", "decisions"))
-    )
+    # Store counts live in the page header; the sidebar lists the safeguards.
     guards = "".join(
         f'<div class="ao-guard">{_e(g)}</div>'
         for g in (
             "Synthetic data only",
             "Read-only tools; no orders or messages",
             "Fixes from a narrow allowlist",
-            "Fixes tested on a copy, same 6 cases",
+            "Fixes re-tested on the same six cases",
             "Step, tool-call and time limits",
             "A person approves or rejects",
         )
     )
-    return rows + '<div style="height:10px"></div><div class="ao-kicker">Safeguards</div>' + guards
+    return '<div class="ao-side-head">Safeguards</div>' + guards
 
 
 def pipeline_states(
@@ -486,7 +425,7 @@ def pipeline_states(
     trial_ok: Optional[bool],
     decided: bool,
 ) -> Dict[str, str]:
-    """Light up the loop from what has actually happened in this session and store."""
+    """Mark each stage of the loop from what has actually happened in this session and store."""
     states = {key: "idle" for key, _, _ in PIPELINE_STAGES}
     if has_runs:
         states["run"] = states["trace"] = "done"

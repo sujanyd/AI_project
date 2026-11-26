@@ -32,15 +32,15 @@ streamlit run app.py
 ```
 *(Or `python3 -m streamlit run app.py`)*
 
-The web application opens at `http://localhost:8501` with a dark "mission control" theme (`.streamlit/config.toml`, styles and components in `app_ui.py`). A live pipeline tracker across the top lights up each stage of the loop (Run → Trace → Evaluate → Diagnose → Autofix → Approve) as you go, and the sidebar shows trace-store counts and the safeguards. There are four tabs:
-1. **▶ Run & Evaluate:** Choose an agent setup and run the six-case test suite. Shows the six measures as rings (task success, tool failures, recovery, safety violations, failure-localization accuracy) and a pass/fail card per case. Four setups are available:
+The web application opens at `http://localhost:8501` with a minimal dark theme (`.streamlit/config.toml`, styles and components in `app_ui.py`). A pipeline bar across the top marks each stage of the loop (Run → Trace → Evaluate → Diagnose → Autofix → Approve) as done, next or blocked, and the sidebar lists the safeguards. There are four tabs:
+1. **Run & Evaluate:** Choose an agent setup and run the six-case test suite. Shows the measures (task success, tool failures, recovery, safety violations, failure-localization accuracy) and a pass/fail row per case. Four setups are available:
    - `v1.0.0` — standard resilient agent (passes all six cases).
    - `v0.9.1-vague-prompt` — same agent with a vague clarification prompt; fails CASE-002 in a way autofix can repair with a prompt change. **Use this one for the end-to-end autofix demo.**
    - `v0.9.2-vague-tool-description` — same agent with an `order_lookup` description that never names its input. The planner builds lookup arguments from the description, so it sends the wrong argument and every lookup is rejected with `INVALID_INPUT` (5 of 6 cases fail as `INVALID_TOOL_INPUT`). Autofix repairs it by restoring a description that names `order_id`.
    - `v0.9.0-fastfail` — step budget cut to 2; fails CASE-001 and CASE-006 with `LIMIT_EXCEEDED`. Diagnosis explains these, but autofix declines because step limits are safeguards, not allowlisted settings.
-2. **⌁ Traces:** Select any stored run to see the agent's reply and a colour-coded timeline of every plan, tool call, result and error, with a table and raw payloads underneath.
-3. **⚙ Diagnose & Autofix:** Select any failed run (e.g. the CASE-002 run from `v0.9.1-vague-prompt`, or any failed run from `v0.9.2-vague-tool-description`), run read-only diagnosis to extract trace facts, generate an allowlisted candidate change, execute an isolated trial retest and 6-case regression suite, see the proposed change as a before/after diff with the trial gates and **Fix Success**, and record your human Approve/Reject decision.
-4. **⚖ Compare:** Side-by-side case cards for the standard and fast-fail agents, with the gating verdicts.
+2. **Traces:** Select any stored run to see the agent's reply and an event log of every plan, tool call, result and error, with a table and raw payloads underneath.
+3. **Diagnose & Autofix:** Select any failed run (e.g. the CASE-002 run from `v0.9.1-vague-prompt`, or any failed run from `v0.9.2-vague-tool-description`), run read-only diagnosis to extract trace facts, generate an allowlisted candidate change, execute an isolated trial retest and 6-case regression suite, see the proposed change as a before/after diff with the trial gates and **Fix Success**, and record your human Approve/Reject decision.
+4. **Compare:** Side-by-side case lists for the standard and fast-fail agents, with the gating verdicts.
 
 ### Option B: Terminal CLI Fallback
 If running in a headless or text-only environment:

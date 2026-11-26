@@ -96,9 +96,10 @@ _RETRYABLE_READ_ONLY_TOOLS = frozenset(
     {"lookup_order_details", "get_order_items", "track_shipment"}
 )
 _CLARIFICATION_SETTING = "agent.clarification_instruction"
-_CLARIFICATION_VALUE = (
-    "Ask the user for the order ID when it is missing, before calling order lookup tools."
-)
+# The agent sends this prompt to the customer verbatim, so the one allowlisted
+# value is customer-facing text that asks for the Order ID (same as v1.0.0).
+CLARIFICATION_VALUE = "Please provide your Order ID (format ORD-XXXXX) so I can assist you."
+_CLARIFICATION_VALUE = CLARIFICATION_VALUE
 
 
 def validate_candidate(

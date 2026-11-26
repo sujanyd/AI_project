@@ -29,10 +29,18 @@ from .repair import (
     review_candidate,
     validate_candidate,
 )
-from .autofix_runner import (
-    AutofixCoordinator,
-    AutofixTrialResult,
-)
+
+# autofix_runner imports src.trace_diagnosis, which imports agentops.diagnosis.
+# Loading it lazily keeps `import src.trace_diagnosis` working on its own.
+_LAZY_AUTOFIX = {"AutofixCoordinator", "AutofixTrialResult"}
+
+
+def __getattr__(name):
+    if name in _LAZY_AUTOFIX:
+        from . import autofix_runner
+
+        return getattr(autofix_runner, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     "ApprovalStatus",

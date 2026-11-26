@@ -387,6 +387,9 @@ def _missing_information_events(events: tuple[TraceEvent, ...]) -> tuple[TraceEv
     missing: list[TraceEvent] = []
     for event in events:
         event_type = event.event_type.casefold()
+        if event.error and event.error.upper() == "MISSING_ORDER_ID":
+            missing.append(event)
+            continue
         if event.tool_name in _LOOKUP_TOOLS and event.input is not None:
             if "order_id" not in event.input or not event.input["order_id"]:
                 missing.append(event)
@@ -477,7 +480,7 @@ def _cause_for(category: FailureCategory) -> str:
     causes = {
         FailureCategory.TOOL_TIMEOUT: "Hypothesis: a tool timeout contributed to the failed run.",
         FailureCategory.MISSING_INFORMATION: "Hypothesis: required order information was missing before lookup.",
-        FailureCategory.MISSING_ORDER_ID: "Hypothesis: the lookup was attempted with a missing order ID.",
+        FailureCategory.MISSING_ORDER_ID: "Hypothesis: the agent mishandled a missing order ID (it looked up without one, or did not clearly ask for it).",
         FailureCategory.UNKNOWN_ORDER: "Hypothesis: the supplied order ID was not found by the lookup (ORDER_NOT_FOUND).",
         FailureCategory.INCOMPLETE_TOOL_RESULT: "Hypothesis: a tool returned an incomplete result.",
         FailureCategory.MALFORMED_RESULT: "Hypothesis: a tool returned malformed or incomplete data.",

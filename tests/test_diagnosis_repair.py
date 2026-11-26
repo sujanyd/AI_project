@@ -596,10 +596,7 @@ class RepairTests(unittest.TestCase):
         candidate = self.candidate(
             setting_path="agent.clarification_instruction",
             old_value="Ask a question when details are missing.",
-            new_value=(
-                "Ask the user for the order ID when it is missing, "
-                "before calling order lookup tools."
-            ),
+            new_value="Please provide your Order ID (format ORD-XXXXX) so I can assist you.",
         )
 
         result = validate_candidate(

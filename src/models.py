@@ -61,6 +61,19 @@ def get_default_config() -> AgentConfig:
     )
 
 
+def get_vague_clarification_config() -> AgentConfig:
+    """
+    Controlled demo configuration (v0.9.1-vague-prompt) that autofix can repair:
+    identical to v1.0.0 except its clarification prompt never asks for the Order ID,
+    so CASE-002 fails. The fix lies inside the autofix allowlist
+    (agent.clarification_instruction).
+    """
+    cfg = get_default_config()
+    cfg.version = "v0.9.1-vague-prompt"
+    cfg.clarification_prompt = "Thanks for reaching out! Could you tell me a bit more?"
+    return cfg
+
+
 def get_baseline_fast_fail_config() -> AgentConfig:
     """
     Controlled second agent configuration (v0.9.0-fastfail) for baseline comparison:

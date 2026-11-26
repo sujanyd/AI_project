@@ -26,8 +26,10 @@ from src.evaluation import (
     run_suite_evaluation,
 )
 from src.models import (
+    AgentConfig,
     get_baseline_fast_fail_config,
     get_default_config,
+    get_vague_clarification_config,
 )
 from src.tracer import (
     get_run_trace,
@@ -40,6 +42,13 @@ from src.tracer import (
 
 # Default local database path
 DEFAULT_DB_PATH = "data/agentops.db"
+
+# Agent setups a person can choose before running the suite.
+AGENT_SETUPS = {
+    "Standard Resilient Agent (v1.0.0)": get_default_config,
+    "Vague Clarification Prompt (v0.9.1-vague-prompt) — fixable by autofix": get_vague_clarification_config,
+    "Controlled Fast-Fail Baseline (v0.9.0-fastfail) — step-limit failures": get_baseline_fast_fail_config,
+}
 
 
 def run_evaluation_data(db_path: Optional[str] = None) -> Tuple[SuiteReport, SuiteReport, ComparisonReport]:
@@ -109,6 +118,53 @@ def render_cli_summary(baseline_report: SuiteReport, fastfail_report: SuiteRepor
     print("=" * 80)
 
 
+def run_autofix_demo(db_path: str) -> Dict[str, Any]:
+    """
+    End-to-end autofix loop on the fixable demo setup: run the six cases, diagnose the
+    first failure from its trace, propose an allowlisted fix, and re-test it on a copy.
+    Nothing is approved here; approval stays with a person in the web app.
+    """
+    agent = SupportAgent(config=get_vague_clarification_config())
+    report = run_suite_evaluation(agent=agent, db_path=db_path)
+    failed = [e for e in report.evaluations if not e.passed]
+    if not failed:
+        return {"report": report, "failed": None}
+    target = failed[0]
+    coordinator = AutofixCoordinator(db_path)
+    diagnosis = coordinator.diagnose_run(target.run_id)
+    candidate = coordinator.propose_candidate_from_diagnosis(target.run_id, diagnosis)
+    trial = coordinator.execute_repair_trial(candidate)
+    return {"report": report, "failed": target, "diagnosis": diagnosis, "trial": trial}
+
+
+def render_cli_autofix(demo: Dict[str, Any]) -> None:
+    """Print the autofix demo: before, diagnosis, proposed change, after, and gates."""
+    report: SuiteReport = demo["report"]
+    print("SAFE AUTOFIX DEMO")
+    print(f"  Setup                   : {report.agent_version} ({report.passed_cases}/{report.total_cases} cases pass)")
+    target = demo.get("failed")
+    if target is None:
+        print("  No failing case; nothing to repair.")
+        print("=" * 80)
+        return
+    diag = demo["diagnosis"]
+    trial: AutofixTrialResult = demo["trial"]
+    cand = trial.candidate
+    print(f"  Failed case             : {target.case_id} ({target.failure_category.value if target.failure_category else 'UNKNOWN'})")
+    print(f"  Diagnosis               : {diag.likely_cause}")
+    print(f"  Cited trace events      : {len(diag.cited_evidence_event_ids)}")
+    print(f"  Proposed change (copy)  : {cand.setting_path}")
+    print(f"      before              : {cand.old_value!r}")
+    print(f"      after               : {cand.new_value!r}")
+    print(f"  Failed case retest      : {'PASS' if trial.retest_passed else 'FAIL'}")
+    print(f"  Fix Success             : {format_rate(trial.comparison_report.repair_success, 'repair_success_rate', 'repaired_count', 'targeted_failing_count')}")
+    print(f"  Regressions             : {format_rate(trial.comparison_report.regression_rate, 'regression_rate', 'regressed_count', 'baseline_passed_count')}")
+    print(f"  Safety gate             : {'PASS' if trial.safety_passed else 'FAIL'}")
+    print(f"  Trial verdict           : {'READY FOR HUMAN APPROVAL' if trial.is_acceptable else 'BLOCKED'} — {trial.decision_reason}")
+    print("  Approve or reject it in the web app (Diagnosis & Safe Autofix tab).")
+    print("=" * 80)
+
+
 def is_streamlit_running() -> bool:
     """Detect whether app is executing inside a live Streamlit server or AppTest context."""
     try:
@@ -124,6 +180,7 @@ def main():
         # Run in offline CLI mode
         b_rep, c_rep, comp = run_evaluation_data(DEFAULT_DB_PATH)
         render_cli_summary(b_rep, c_rep, comp)
+        render_cli_autofix(run_autofix_demo(DEFAULT_DB_PATH))
         print("\n[Notice] To launch interactive UI, run: streamlit run app.py")
         return
 
@@ -165,7 +222,7 @@ def main():
         with col_cfg:
             selected_agent_type = st.selectbox(
                 "Choose Agent Configuration",
-                options=["Standard Resilient Agent (v1.0.0)", "Controlled Fast-Fail Baseline (v0.9.0-fastfail)"],
+                options=list(AGENT_SETUPS),
             )
         with col_btn:
             st.write("")
@@ -173,7 +230,7 @@ def main():
             run_btn = st.button("Run 6 Cases", type="primary", width="stretch")
 
         if run_btn:
-            cfg = get_default_config() if "v1.0.0" in selected_agent_type else get_baseline_fast_fail_config()
+            cfg: AgentConfig = AGENT_SETUPS[selected_agent_type]()
             with st.spinner(f"Running 6 test cases for {cfg.version}..."):
                 agent = SupportAgent(config=cfg)
                 report = run_suite_evaluation(agent=agent, db_path=db_path)
@@ -186,16 +243,18 @@ def main():
             st.markdown(f"### Evaluation Metrics — Agent Version `{rep.agent_version}`")
 
             # Metrics cards with counts and denominators
-            c1, c2, c3, c4 = st.columns(4)
+            c1, c2, c3, c4, c5 = st.columns(5)
             ts = rep.metrics.get("task_success", {})
             tf = rep.metrics.get("tool_failures", {})
             rec = rep.metrics.get("recovery", {})
             sv = rep.metrics.get("safety_violations", {})
+            fla = rep.metrics.get("failure_localization", {})
 
             c1.metric("Task Success Rate", format_rate(ts, "task_success_rate", "passed_count", "total_cases"))
             c2.metric("Tool Failure Rate", format_rate(tf, "tool_failure_rate", "failed_tool_calls", "total_tool_calls"))
             c3.metric("Recovery Rate", format_rate(rec, "recovery_rate", "recovered_count", "error_cases_total"))
             c4.metric("Safety Violations", format_rate(sv, "safety_violation_rate", "violation_count", "total_cases"))
+            c5.metric("Localization Accuracy", format_rate(fla, "localization_accuracy", "matched_count", "failed_cases_total"))
 
             # Outcomes Table
             st.markdown("#### Test Case Outcomes")
@@ -289,7 +348,7 @@ def main():
                     failed_run_items.append((r, fail_cat))
 
         if not failed_run_items:
-            st.info("No failed evaluations currently found in the trace database. Run an evaluation with 'Controlled Fast-Fail Baseline' to generate failed runs.")
+            st.info("No failed evaluations currently found in the trace database. Run an evaluation with the 'Vague Clarification Prompt' setup to generate a failure autofix can repair.")
         else:
             failed_options = {
                 f"{r.run_id} | Case: {r.case_id} | Version: {r.agent_version} | Category: {cat}": r.run_id
@@ -356,10 +415,14 @@ def main():
                 prop_c2.write(f"**Cited Trace Evidence:** `{cand.evidence_event_ids}`")
 
                 st.markdown("#### Isolated Trial Verification")
-                g1, g2, g3 = st.columns(3)
+                g1, g2, g3, g4 = st.columns(4)
                 g1.metric("Failed Case Retest", "PASS" if trial.retest_passed else "FAIL")
                 g2.metric("Safety Gate Status", "PASS" if trial.safety_passed else "FAIL")
                 g3.metric("Regression Gate Status", trial.comparison_report.verdict)
+                g4.metric(
+                    "Fix Success",
+                    format_rate(trial.comparison_report.repair_success, "repair_success_rate", "repaired_count", "targeted_failing_count"),
+                )
 
                 if trial.is_acceptable:
                     st.success(f"**Trial Passed:** {trial.decision_reason}")

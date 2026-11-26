@@ -22,6 +22,7 @@ from agentops.diagnosis import (
     diagnose,
 )
 from agentops.repair import (
+    CLARIFICATION_VALUE,
     ApprovalStatus,
     CandidateTestStatus,
     CandidateValidationError,
@@ -190,7 +191,7 @@ class AutofixCoordinator:
                 source_run_ids=(run_id,),
                 setting_path="agent.clarification_instruction",
                 old_value=old_inst,
-                new_value="Ask the user for the order ID when it is missing, before calling order lookup tools.",
+                new_value=CLARIFICATION_VALUE,
                 rationale=f"Trace evidence shows missing order ID before lookup ({evidence_ids[0]}). Standardize clarification instruction.",
                 evidence_event_ids=evidence_ids,
             )

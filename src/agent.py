@@ -20,6 +20,19 @@ from src.tools import OrderLookupTool, ResponseValidationTool, ShippingPolicyLoo
 # Regex to safely extract Order ID like ORD-10001, ORD-ABCDE, etc.
 ORDER_ID_REGEX = re.compile(r"\b(ORD-[A-Za-z0-9_-]+)\b", re.IGNORECASE)
 
+# The planner reads the tool description to learn the input parameter name ("Input: order_id").
+TOOL_INPUT_REGEX = re.compile(r"\bInput:\s*([a-z][a-z0-9_]*)", re.IGNORECASE)
+# Generic argument name the planner falls back to when a description names no input.
+FALLBACK_ARGUMENT = "query"
+
+
+def lookup_arguments(description: str, order_id: str) -> Dict[str, Any]:
+    """Build order_lookup arguments the way the planner reads its tool description."""
+    match = TOOL_INPUT_REGEX.search(description or "")
+    key = match.group(1).lower() if match else FALLBACK_ARGUMENT
+    return {key: order_id}
+
+
 # Keywords indicating unsupported write actions
 WRITE_INTENT_KEYWORDS = [
     "cancel my order",
@@ -154,6 +167,7 @@ class SupportAgent:
                 clarification_prompt=overrides.get("clarification_prompt", cfg.clarification_prompt),
                 strict_policy_verification=overrides.get("strict_policy_verification", cfg.strict_policy_verification),
                 validate_response=overrides.get("validate_response", cfg.validate_response),
+                order_lookup_description=overrides.get("order_lookup_description", cfg.order_lookup_description),
             )
             if "version" in overrides:
                 active_version = overrides["version"]
@@ -264,11 +278,15 @@ class SupportAgent:
         if step_index > cfg.max_steps:
             return finalize(AgentStatus.LIMIT_EXCEEDED, "Step limit exceeded.", StopReason.MAX_STEPS, error_code="MAX_STEPS_EXCEEDED")
 
+        lookup_params = lookup_arguments(cfg.order_lookup_description, extracted_order_id)
         self._emit(
             input_data,
             EventType.PLANNING,
             step_index,
-            {"thought": f"Order ID '{extracted_order_id}' identified. Executing order_lookup tool."},
+            {
+                "thought": f"Order ID '{extracted_order_id}' identified. Executing order_lookup tool "
+                f"with argument '{next(iter(lookup_params))}' taken from its tool description.",
+            },
         )
 
         total_tool_calls += 1
@@ -277,7 +295,7 @@ class SupportAgent:
 
         order_res = self._call_tool(
             "order_lookup",
-            {"order_id": extracted_order_id},
+            dict(lookup_params),
             f"call_order_{total_tool_calls}",
             step_index,
             input_data,
@@ -297,7 +315,7 @@ class SupportAgent:
                         return finalize(AgentStatus.LIMIT_EXCEEDED, "Tool call limit exceeded during retry.", StopReason.MAX_TOOL_CALLS, error_code="MAX_TOOL_CALLS_EXCEEDED")
                     order_res = self._call_tool(
                         "order_lookup",
-                        {"order_id": extracted_order_id},
+                        dict(lookup_params),
                         f"call_order_retry_{total_tool_calls}",
                         step_index,
                         input_data,

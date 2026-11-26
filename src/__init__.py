@@ -11,6 +11,7 @@ from src.models import (
     get_default_config,
     get_baseline_fast_fail_config,
     get_vague_clarification_config,
+    get_vague_tool_description_config,
 )
 from src.tools import (
     OrderLookupTool,
@@ -57,6 +58,7 @@ __all__ = [
     "get_default_config",
     "get_baseline_fast_fail_config",
     "get_vague_clarification_config",
+    "get_vague_tool_description_config",
     "OrderLookupTool",
     "ShippingPolicyLookupTool",
     "ResponseValidationTool",

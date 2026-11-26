@@ -34,6 +34,7 @@ _CATEGORY_BY_ERROR_CODE = {
     "CONFLICTING_INFORMATION": DiagnosisCategory.CONFLICTING_INFORMATION,
     "MAX_STEPS_EXCEEDED": DiagnosisCategory.EXECUTION_LIMIT,
     "MAX_TOOL_CALLS_EXCEEDED": DiagnosisCategory.EXECUTION_LIMIT,
+    "INVALID_INPUT": DiagnosisCategory.INVALID_TOOL_INPUT,
 }
 
 # Evaluator failure categories (src.evaluation.FailureCategory values) -> diagnosis categories.
@@ -44,9 +45,16 @@ _CATEGORY_BY_EVALUATOR = {
     "CONFLICTING_EVIDENCE": DiagnosisCategory.CONFLICTING_INFORMATION,
     "UNSAFE_CLAIM": DiagnosisCategory.UNSAFE_CLAIM,
     "LIMIT_EXCEEDED": DiagnosisCategory.EXECUTION_LIMIT,
+    "INVALID_TOOL_INPUT": DiagnosisCategory.INVALID_TOOL_INPUT,
 }
 
-_TOOL_CONFIG_KEYS = ("max_tool_calls", "tool_timeout_ms", "retry_count", "validate_response")
+_TOOL_CONFIG_KEYS = (
+    "max_tool_calls",
+    "tool_timeout_ms",
+    "retry_count",
+    "validate_response",
+    "order_lookup_description",
+)
 
 
 def _loads(value: Optional[str]) -> Optional[Any]:

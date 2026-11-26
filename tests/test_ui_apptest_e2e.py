@@ -11,6 +11,7 @@ from src.models import (
     AgentInput,
     get_baseline_fast_fail_config,
     get_default_config,
+    get_vague_tool_description_config,
 )
 from src.trace_recorder import load_run_for_evaluation, run_and_record
 from src.tracer import (
@@ -86,9 +87,9 @@ class TestStreamlitAppEndToEndFlow(unittest.TestCase):
         # Ensure category is displayed in option label
         self.assertTrue(any("Category: TIMEOUT" in opt for opt in failed_run_box.options))
 
-        # Select the timeout failed run
-        timeout_opt = next(opt for opt in failed_run_box.options if run_id in opt)
-        failed_run_box.select(timeout_opt).run()
+        # Select the timeout failed run (options show labels; the selected value is the run ID)
+        self.assertTrue(any(run_id in opt for opt in failed_run_box.options))
+        failed_run_box.select(run_id).run()
         self.assertFalse(at.exception)
 
         # Trigger Diagnosis button
@@ -125,6 +126,37 @@ class TestStreamlitAppEndToEndFlow(unittest.TestCase):
         self.assertFalse(at.exception)
         success_boxes = [s.value for s in at.success]
         self.assertTrue(any("Stored Human Sign-Off" in s or "APPROVED" in s for s in success_boxes))
+
+    def test_selected_run_survives_trial_and_approval_is_saved(self):
+        """
+        A trial records new runs, which changes the failed-run list. The reviewer's
+        selection must stay put so the Approve click reaches the trial it belongs to.
+        """
+        report = run_suite_evaluation(
+            SupportAgent(config=get_vague_tool_description_config()), db_path=self.db_path
+        )
+        failed_ids = [e.run_id for e in report.evaluations if not e.passed]
+
+        at = AppTest.from_file(APP_FILE, default_timeout=60)
+        at.run()
+        at.sidebar.text_input[0].input(self.db_path).run()
+        failed_run_box = next(s for s in at.selectbox if "Diagnose" in s.label)
+        target = next(r for r in failed_ids if r != failed_run_box.value)
+        failed_run_box.select(target).run()
+        self.assertFalse(at.exception)
+
+        next(b for b in at.button if "Generate & Test" in b.label).click().run()
+        self.assertFalse(at.exception)
+        self.assertEqual(next(s for s in at.selectbox if "Diagnose" in s.label).value, target)
+
+        next(b for b in at.button if "Approve" in b.label).click().run()
+        self.assertFalse(at.exception)
+
+        decisions = list_human_decisions(self.db_path)
+        self.assertEqual(len(decisions), 1)
+        self.assertEqual(decisions[0].decision, "approved")
+        self.assertEqual(decisions[0].source_run_id, target)
+        self.assertEqual(decisions[0].setting_path, "tools.lookup_order_details.description")
 
 
 if __name__ == "__main__":

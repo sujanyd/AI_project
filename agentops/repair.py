@@ -100,6 +100,13 @@ _CLARIFICATION_SETTING = "agent.clarification_instruction"
 # value is customer-facing text that asks for the Order ID (same as v1.0.0).
 CLARIFICATION_VALUE = "Please provide your Order ID (format ORD-XXXXX) so I can assist you."
 _CLARIFICATION_VALUE = CLARIFICATION_VALUE
+TOOL_DESCRIPTION_SETTING = "tools.lookup_order_details.description"
+# The one allowlisted order-lookup description: it names the input parameter the
+# planner must send (same text as v1.0.0's src.models.ORDER_LOOKUP_DESCRIPTION).
+TOOL_DESCRIPTION_VALUE = (
+    "Read-only lookup of a single order. Input: order_id (format ORD-XXXXX). "
+    "Returns status, items, total and shipping_method."
+)
 
 
 def validate_candidate(
@@ -153,6 +160,11 @@ def validate_candidate(
             reasons.append("clarification instruction values must be strings")
         elif candidate.new_value != _CLARIFICATION_VALUE:
             reasons.append("unsupported clarification instruction change")
+    elif setting_path == TOOL_DESCRIPTION_SETTING:
+        if not isinstance(candidate.old_value, str) or not isinstance(candidate.new_value, str):
+            reasons.append("tool description values must be strings")
+        elif candidate.new_value != TOOL_DESCRIPTION_VALUE:
+            reasons.append("unsupported tool description change")
     elif allowed_retry_tool is not None:
         if (
             isinstance(candidate.old_value, bool)
@@ -173,6 +185,8 @@ def validate_candidate(
     else:
         if setting_path == _CLARIFICATION_SETTING and not isinstance(current_value, str):
             reasons.append("configured clarification instruction must be a string")
+        if setting_path == TOOL_DESCRIPTION_SETTING and not isinstance(current_value, str):
+            reasons.append("configured tool description must be a string")
         if allowed_retry_tool is not None and (
             isinstance(current_value, bool) or not isinstance(current_value, int)
         ):

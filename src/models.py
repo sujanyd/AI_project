@@ -22,6 +22,14 @@ class StopReason(str, Enum):
     UNSUPPORTED_REQUEST = "UNSUPPORTED_REQUEST"
 
 
+# Description the planner reads to build order_lookup arguments. It names the input
+# parameter ("Input: order_id"), so the planner sends the order ID under that key.
+ORDER_LOOKUP_DESCRIPTION = (
+    "Read-only lookup of a single order. Input: order_id (format ORD-XXXXX). "
+    "Returns status, items, total and shipping_method."
+)
+
+
 class EventType(str, Enum):
     PLANNING = "PLANNING"
     TOOL_CALL = "TOOL_CALL"
@@ -44,6 +52,7 @@ class AgentConfig:
     clarification_prompt: str = "Please provide your Order ID (format ORD-XXXXX) so I can assist you."
     strict_policy_verification: bool = True
     validate_response: bool = True
+    order_lookup_description: str = ORDER_LOOKUP_DESCRIPTION
 
 
 def get_default_config() -> AgentConfig:
@@ -71,6 +80,20 @@ def get_vague_clarification_config() -> AgentConfig:
     cfg = get_default_config()
     cfg.version = "v0.9.1-vague-prompt"
     cfg.clarification_prompt = "Thanks for reaching out! Could you tell me a bit more?"
+    return cfg
+
+
+def get_vague_tool_description_config() -> AgentConfig:
+    """
+    Controlled demo configuration (v0.9.2-vague-tool-description) that autofix can repair:
+    identical to v1.0.0 except the order_lookup tool description never names its input
+    parameter, so the planner sends the wrong argument and every lookup is rejected with
+    INVALID_INPUT. The fix lies inside the autofix allowlist
+    (tools.lookup_order_details.description).
+    """
+    cfg = get_default_config()
+    cfg.version = "v0.9.2-vague-tool-description"
+    cfg.order_lookup_description = "Looks up an order."
     return cfg
 
 

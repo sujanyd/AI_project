@@ -23,6 +23,8 @@ from agentops.diagnosis import (
 )
 from agentops.repair import (
     CLARIFICATION_VALUE,
+    TOOL_DESCRIPTION_SETTING,
+    TOOL_DESCRIPTION_VALUE,
     ApprovalStatus,
     CandidateTestStatus,
     CandidateValidationError,
@@ -138,11 +140,15 @@ class AutofixCoordinator:
             clarification_prompt=snapshot.get("clarification_prompt", base_ref.clarification_prompt),
             strict_policy_verification=snapshot.get("strict_policy_verification", base_ref.strict_policy_verification),
             validate_response=snapshot.get("validate_response", base_ref.validate_response),
+            order_lookup_description=snapshot.get("order_lookup_description", base_ref.order_lookup_description),
         )
 
         settings = {
             "tools": {
-                "lookup_order_details": {"retry_count": cfg.retry_count},
+                "lookup_order_details": {
+                    "retry_count": cfg.retry_count,
+                    "description": cfg.order_lookup_description,
+                },
             },
             "agent": {
                 "clarification_instruction": cfg.clarification_prompt,
@@ -196,6 +202,34 @@ class AutofixCoordinator:
                 evidence_event_ids=evidence_ids,
             )
 
+        elif cat in (DiagnosisCategory.INVALID_TOOL_INPUT, "invalid_tool_input"):
+            # Only the order-lookup description is allowlisted, so the rejected call
+            # must be an order_lookup call cited by the diagnosis.
+            cited = set(evidence_ids)
+            rejected_tools = {
+                event.tool_name
+                for event in self.diagnosis_tools.inspect_run(run_id).events
+                if event.event_id in cited and event.tool_name
+            }
+            if rejected_tools != {"order_lookup"}:
+                raise ValueError(
+                    "No allowlisted repair setting available: only the order_lookup tool "
+                    f"description is allowlisted, but the rejected calls came from {sorted(rejected_tools)}."
+                )
+            old_desc = current_settings.get("tools", {}).get("lookup_order_details", {}).get("description", "")
+            return RepairCandidate(
+                repair_id=repair_id,
+                source_run_ids=(run_id,),
+                setting_path=TOOL_DESCRIPTION_SETTING,
+                old_value=old_desc,
+                new_value=TOOL_DESCRIPTION_VALUE,
+                rationale=(
+                    f"Trace evidence shows order_lookup rejected its arguments with INVALID_INPUT ({evidence_ids[0]}). "
+                    "Rewrite the tool description so it names the order_id input."
+                ),
+                evidence_event_ids=evidence_ids,
+            )
+
         else:
             raise ValueError(f"No allowlisted repair setting available for failure category {cat}.")
 
@@ -238,11 +272,14 @@ class AutofixCoordinator:
         # 3. Construct candidate AgentConfig from copy
         new_retry_count = base_cfg.retry_count
         new_clarification = base_cfg.clarification_prompt
+        new_description = base_cfg.order_lookup_description
 
         if candidate.setting_path == "tools.lookup_order_details.retry_count":
             new_retry_count = int(candidate.new_value)
         elif candidate.setting_path == "agent.clarification_instruction":
             new_clarification = str(candidate.new_value)
+        elif candidate.setting_path == TOOL_DESCRIPTION_SETTING:
+            new_description = str(candidate.new_value)
 
         candidate_version = f"{base_cfg.version}-repaired-{candidate.repair_id[:6]}"
         candidate_config = AgentConfig(
@@ -255,6 +292,7 @@ class AutofixCoordinator:
             clarification_prompt=new_clarification,
             strict_policy_verification=base_cfg.strict_policy_verification,
             validate_response=base_cfg.validate_response,
+            order_lookup_description=new_description,
         )
 
         # 4. Retest the specific failed source case

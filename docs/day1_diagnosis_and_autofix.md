@@ -122,6 +122,17 @@ trace events that carry those error codes. Step and tool-call budgets are not
 on the repair allowlist, so the autofix coordinator declines to propose a
 candidate for them and the UI directs the reviewer to a manual change.
 
+**[IMPLEMENTED] Clearer tool description.** The planner builds `order_lookup`
+arguments from that tool's description (it sends the order ID under the
+parameter named after `Input:`, and falls back to a generic `query` argument
+when none is named). Runs whose lookups are rejected with `INVALID_INPUT` are
+diagnosed as `invalid_tool_input`, citing the rejected `order_lookup` events.
+Autofix then proposes `tools.lookup_order_details.description`, which accepts
+exactly one pinned value: the reviewed description that names `order_id`. It
+does not add capabilities or change the tool's schema. Rejected calls from any
+other tool get no candidate. The `v0.9.2-vague-tool-description` setup shows
+the full loop.
+
 The initial limits are four processing steps and three read-only tool calls per
 run, a 1,000-event trace limit per run, a two-second timeout per tool call, at
 most three selected runs, and a ten-second wall-clock limit per diagnosis.

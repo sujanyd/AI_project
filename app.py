@@ -30,6 +30,7 @@ from src.models import (
     get_baseline_fast_fail_config,
     get_default_config,
     get_vague_clarification_config,
+    get_vague_tool_description_config,
 )
 from src.tracer import (
     get_run_trace,
@@ -47,6 +48,7 @@ DEFAULT_DB_PATH = "data/agentops.db"
 AGENT_SETUPS = {
     "Standard Resilient Agent (v1.0.0)": get_default_config,
     "Vague Clarification Prompt (v0.9.1-vague-prompt) — fixable by autofix": get_vague_clarification_config,
+    "Vague Tool Description (v0.9.2-vague-tool-description) — fixable by autofix": get_vague_tool_description_config,
     "Controlled Fast-Fail Baseline (v0.9.0-fastfail) — step-limit failures": get_baseline_fast_fail_config,
 }
 
@@ -118,13 +120,17 @@ def render_cli_summary(baseline_report: SuiteReport, fastfail_report: SuiteRepor
     print("=" * 80)
 
 
-def run_autofix_demo(db_path: str) -> Dict[str, Any]:
+# Fixable demo setups the CLI walks through: one prompt fix, one tool-description fix.
+AUTOFIX_DEMO_SETUPS = (get_vague_clarification_config, get_vague_tool_description_config)
+
+
+def run_autofix_demo(db_path: str, config_factory=get_vague_clarification_config) -> Dict[str, Any]:
     """
-    End-to-end autofix loop on the fixable demo setup: run the six cases, diagnose the
+    End-to-end autofix loop on a fixable demo setup: run the six cases, diagnose the
     first failure from its trace, propose an allowlisted fix, and re-test it on a copy.
     Nothing is approved here; approval stays with a person in the web app.
     """
-    agent = SupportAgent(config=get_vague_clarification_config())
+    agent = SupportAgent(config=config_factory())
     report = run_suite_evaluation(agent=agent, db_path=db_path)
     failed = [e for e in report.evaluations if not e.passed]
     if not failed:
@@ -180,7 +186,8 @@ def main():
         # Run in offline CLI mode
         b_rep, c_rep, comp = run_evaluation_data(DEFAULT_DB_PATH)
         render_cli_summary(b_rep, c_rep, comp)
-        render_cli_autofix(run_autofix_demo(DEFAULT_DB_PATH))
+        for config_factory in AUTOFIX_DEMO_SETUPS:
+            render_cli_autofix(run_autofix_demo(DEFAULT_DB_PATH, config_factory))
         print("\n[Notice] To launch interactive UI, run: streamlit run app.py")
         return
 
@@ -348,14 +355,22 @@ def main():
                     failed_run_items.append((r, fail_cat))
 
         if not failed_run_items:
-            st.info("No failed evaluations currently found in the trace database. Run an evaluation with the 'Vague Clarification Prompt' setup to generate a failure autofix can repair.")
+            st.info("No failed evaluations currently found in the trace database. Run an evaluation with the 'Vague Clarification Prompt' or 'Vague Tool Description' setup to generate a failure autofix can repair.")
         else:
-            failed_options = {
-                f"{r.run_id} | Case: {r.case_id} | Version: {r.agent_version} | Category: {cat}": r.run_id
+            failed_labels = {
+                r.run_id: f"{r.run_id} | Case: {r.case_id} | Version: {r.agent_version} | Category: {cat}"
                 for r, cat in failed_run_items
             }
-            chosen_label = st.selectbox("Select Failed Run to Diagnose", list(failed_options.keys()))
-            target_run_id = failed_options[chosen_label]
+            # A trial records new runs, which changes this list. Keep the reviewer's run
+            # selected across reruns so its trial and the approval buttons stay in place.
+            if st.session_state.get("selected_failed_run") not in failed_labels:
+                st.session_state["selected_failed_run"] = next(iter(failed_labels))
+            target_run_id = st.selectbox(
+                "Select Failed Run to Diagnose",
+                list(failed_labels),
+                format_func=failed_labels.get,
+                key="selected_failed_run",
+            )
 
             col_diag_btn, col_prop_btn = st.columns(2)
             with col_diag_btn:

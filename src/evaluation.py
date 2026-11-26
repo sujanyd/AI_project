@@ -48,6 +48,7 @@ class FailureCategory(str, Enum):
     CONFLICTING_EVIDENCE = "CONFLICTING_EVIDENCE"
     UNSAFE_CLAIM = "UNSAFE_CLAIM"
     LIMIT_EXCEEDED = "LIMIT_EXCEEDED"
+    INVALID_TOOL_INPUT = "INVALID_TOOL_INPUT"
     UNKNOWN = "UNKNOWN"
 
 
@@ -60,6 +61,7 @@ DIAGNOSIS_CATEGORY_MAP = {
     FailureCategory.CONFLICTING_EVIDENCE: "conflicting_information",
     FailureCategory.UNSAFE_CLAIM: "unsafe_claim",
     FailureCategory.LIMIT_EXCEEDED: "execution_limit",
+    FailureCategory.INVALID_TOOL_INPUT: "invalid_tool_input",
     FailureCategory.UNKNOWN: "other",
 }
 
@@ -73,6 +75,36 @@ FAST_FAIL_GROUND_TRUTH: Dict[str, FailureCategory] = {
     "CASE-001-ORDINARY": FailureCategory.LIMIT_EXCEEDED,
     "CASE-006-CONFLICTING-INFO": FailureCategory.LIMIT_EXCEEDED,
 }
+
+# Known root cause of the one case the vague-prompt demo agent (v0.9.1-vague-prompt) fails:
+# its clarification prompt never asks for the Order ID.
+VAGUE_PROMPT_GROUND_TRUTH: Dict[str, FailureCategory] = {
+    "CASE-002-MISSING-ID": FailureCategory.MISSING_INFORMATION,
+}
+
+# Known root cause of the cases the vague-tool-description demo agent
+# (v0.9.2-vague-tool-description) fails: its order_lookup description names no input
+# parameter, so every lookup is rejected with INVALID_INPUT before any fault fires.
+VAGUE_TOOL_DESCRIPTION_GROUND_TRUTH: Dict[str, FailureCategory] = {
+    case_id: FailureCategory.INVALID_TOOL_INPUT
+    for case_id in (
+        "CASE-001-ORDINARY",
+        "CASE-003-UNKNOWN-ORDER",
+        "CASE-004-INCOMPLETE-RESULT",
+        "CASE-005-TOOL-TIMEOUT",
+        "CASE-006-CONFLICTING-INFO",
+    )
+}
+
+# Ground truth used by default for each controlled agent setup.
+GROUND_TRUTH_BY_VERSION: Dict[str, Dict[str, FailureCategory]] = {
+    "v0.9.0-fastfail": FAST_FAIL_GROUND_TRUTH,
+    "v0.9.1-vague-prompt": VAGUE_PROMPT_GROUND_TRUTH,
+    "v0.9.2-vague-tool-description": VAGUE_TOOL_DESCRIPTION_GROUND_TRUTH,
+}
+
+# Tool error code returned when a tool is called with missing or wrongly named arguments.
+INVALID_INPUT_ERROR_CODE = "INVALID_INPUT"
 
 
 # ── Test Case Contracts ──────────────────────────────────────────────────────
@@ -555,7 +587,12 @@ class Evaluator:
         if result.status == AgentStatus.LIMIT_EXCEEDED or result.error_code in LIMIT_ERROR_CODES:
             return FailureCategory.LIMIT_EXCEEDED
 
-        # 4. Timeout
+        # 4. Tool rejected the arguments it was called with. The call never ran, so the
+        # case's injected fault mode was never reached.
+        if result.error_code == INVALID_INPUT_ERROR_CODE:
+            return FailureCategory.INVALID_TOOL_INPUT
+
+        # 5. Timeout
         if result.status == AgentStatus.TIMEOUT or result.error_code == "TIMEOUT_ERROR":
             return FailureCategory.TIMEOUT
         for ev in events:
@@ -563,7 +600,7 @@ class Evaluator:
             if err == "TIMEOUT_ERROR":
                 return FailureCategory.TIMEOUT
 
-        # 5. Malformed Result / Schema Crash
+        # 6. Malformed Result / Schema Crash
         if (
             result.error_code == "INCOMPLETE_TOOL_RESULT"
             or case.fault_mode == "corrupt_payload"
@@ -572,7 +609,7 @@ class Evaluator:
         ):
             return FailureCategory.MALFORMED_RESULT
 
-        # 6. Conflicting Evidence
+        # 7. Conflicting Evidence
         if (
             result.error_code == "CONFLICTING_INFORMATION"
             or case.fault_mode == "conflicting_records"
@@ -580,13 +617,13 @@ class Evaluator:
         ):
             return FailureCategory.CONFLICTING_EVIDENCE
 
-        # 7. Wrong Tool / Wrong Result
+        # 8. Wrong Tool / Wrong Result
         if not checks.get("forbidden_tools_check", True) or not checks.get("tool_call_count_check", True):
             return FailureCategory.WRONG_TOOL_OR_RESULT
         if not checks.get("status_check", True) or not checks.get("required_keywords_check", True):
             return FailureCategory.WRONG_TOOL_OR_RESULT
 
-        # 8. Fallback
+        # 9. Fallback
         return FailureCategory.UNKNOWN
 
 
@@ -845,8 +882,11 @@ def run_suite_evaluation(
     via the tracing interface (if db_path provided), evaluates results, and computes metrics.
 
     ``ground_truth`` maps case_id -> expected FailureCategory for cases whose failure
-    root cause is known; it feeds the Failure-Localization Accuracy metric.
+    root cause is known; it feeds the Failure-Localization Accuracy metric. When omitted,
+    the known ground truth for the agent's controlled setup (if any) is used.
     """
+    if ground_truth is None:
+        ground_truth = GROUND_TRUTH_BY_VERSION.get(getattr(agent, "version", ""), {})
     cases = cases or build_canonical_case_list()
     baseline_run_id_map = baseline_run_id_map or {}
     evaluations: List[EvaluationResult] = []

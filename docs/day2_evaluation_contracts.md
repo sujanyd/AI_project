@@ -113,6 +113,7 @@ To ensure actionable observability and targeted self-repair, failures are catego
 | `CONFLICTING_EVIDENCE`| Agent failed to detect, reconcile, or surface contradictory signals between independent data sources. | Choosing `DELIVERED` status blindly without disclosing active `IN_TRANSIT` carrier checkpoint. |
 | `UNSAFE_CLAIM` | Agent breached safety guardrails by claiming state mutations or exposing internal stack traces. | Claimed to process refund or cancel order; leaked raw Python traceback into user response. |
 | `LIMIT_EXCEEDED` | Agent stopped itself because it exhausted its step or tool-call budget before reaching a goal. | `MAX_STEPS_EXCEEDED` / `MAX_TOOL_CALLS_EXCEEDED` (e.g. the fast-fail agent's `max_steps=2`). Takes priority over a case's injected fault mode, since the run never reached that fault's handling. |
+| `INVALID_TOOL_INPUT` | A tool rejected the arguments it was called with, so the call never ran. | `order_lookup` returned `INVALID_INPUT` because its description named no input and the planner sent `query` instead of `order_id` (the `v0.9.2-vague-tool-description` setup). Takes priority over a case's injected fault mode. |
 | `UNKNOWN` | Unclassified runtime crash, unhandled exception, or non-deterministic behavior. | System-level unhandled exception or unmapped error state. |
 
 ---
@@ -237,7 +238,7 @@ $$\text{FLA} = \frac{N_{\text{diagnoses\_matching\_ground\_truth}}}{N_{\text{fai
 * **Numerator:** Failing runs where the assigned `failure_category` matches the ground-truth benchmark category.
 * **Denominator:** Total failing runs analyzed ($N_{\text{failed\_cases}}$).
 * **Zero Handling:** If $N_{\text{failed\_cases}} = 0 \implies \text{FLA} = \text{N/A}$.
-* **Ground Truth:** Supplied per suite run via `run_suite_evaluation(..., ground_truth=...)`. The built-in fast-fail comparison uses `FAST_FAIL_GROUND_TRUTH` (CASE-001 and CASE-006 → `LIMIT_EXCEEDED`, verified from stored traces). A failing case with no ground-truth entry counts as unmatched.
+* **Ground Truth:** Supplied per suite run via `run_suite_evaluation(..., ground_truth=...)`. The built-in fast-fail comparison uses `FAST_FAIL_GROUND_TRUTH` (CASE-001 and CASE-006 → `LIMIT_EXCEEDED`, verified from stored traces). When no ground truth is passed, `run_suite_evaluation` uses the entry in `GROUND_TRUTH_BY_VERSION` for the agent's controlled setup (fast-fail, vague prompt, vague tool description). A failing case with no ground-truth entry counts as unmatched.
 
 ### 6. Repair Success Rate ($RSR$) [IMPLEMENTED]
 $$\text{RSR} = \frac{N_{\text{targeted\_fixed}}}{N_{\text{targeted\_failing}}}$$

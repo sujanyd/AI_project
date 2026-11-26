@@ -196,44 +196,75 @@ def main():
     # -------------------------------------------------------------------------
     import streamlit as st
 
+    import app_ui as ui
+
     st.set_page_config(
         page_title="AgentOps: Evaluation, Observability & Safe Self-Repair",
         page_icon="🛡️",
         layout="wide",
     )
+    st.markdown(ui.CSS, unsafe_allow_html=True)
 
-    st.title("🛡️ AgentOps — AI Agent Evaluation, Observability & Safe Self-Repair")
-    st.caption("Local Prototype: Simulated shop-support agent evaluation, ordered SQLite tracing, trace-backed diagnosis, and gated autofix.")
+    def html(fragment: str) -> None:
+        st.markdown(fragment, unsafe_allow_html=True)
 
     # Sidebar configuration
-    st.sidebar.header("Configuration & Trace Store")
+    st.sidebar.markdown("### 🛡️ Mission Control")
     db_path = st.sidebar.text_input("SQLite Database Path", value=DEFAULT_DB_PATH)
     init_db(db_path)
 
+    def store_snapshot() -> Dict[str, Any]:
+        """One pass over the trace store: runs, latest evaluation per run, decisions."""
+        runs = list_runs(db_path)
+        latest_eval: Dict[str, Any] = {}
+        evals = list_evaluations(db_path)
+        for record in evals:
+            latest_eval[record.run_id] = record
+        failed = [
+            (r, latest_eval[r.run_id].failure_category or "UNKNOWN")
+            for r in runs
+            if r.run_id in latest_eval and latest_eval[r.run_id].verdict == "FAIL"
+        ]
+        return {
+            "runs": runs,
+            "failed": failed,
+            "stats": {
+                "runs": len(runs),
+                "evaluations": len(evals),
+                "failed": len(failed),
+                "decisions": len(list_human_decisions(db_path)),
+            },
+        }
+
+    snapshot = store_snapshot()
+
+    st.title("AgentOps")
+    tagline_slot = st.empty()
+    pipeline_slot = st.empty()
+    sidebar_slot = st.sidebar.empty()
+    case_descriptions = {c.case_id: c.description or "" for c in build_canonical_case_list()}
+
     # Navigation Tabs
     tab_eval, tab_traces, tab_autofix, tab_baseline = st.tabs([
-        "🚀 Run Evaluation",
-        "🔍 Results & Traces",
-        "🔧 Diagnosis & Safe Autofix",
-        "⚖️ Fast-Fail Comparison",
+        "▶ Run & Evaluate",
+        "⌁ Traces",
+        "⚙ Diagnose & Autofix",
+        "⚖ Compare",
     ])
 
     # -------------------------------------------------------------------------
     # TAB 1: RUN EVALUATION
     # -------------------------------------------------------------------------
     with tab_eval:
-        st.subheader("Run Evaluation Suite Against Support Agent")
-        st.write("Execute the six canonical synthetic shop test cases against a selected agent configuration.")
+        html(ui.section("Step 1 · Choose & run", "Pick an agent setup, then run all six cases"))
 
-        col_cfg, col_btn = st.columns([3, 1])
+        col_cfg, col_btn = st.columns([3, 1], vertical_alignment="bottom")
         with col_cfg:
             selected_agent_type = st.selectbox(
                 "Choose Agent Configuration",
                 options=list(AGENT_SETUPS),
             )
         with col_btn:
-            st.write("")
-            st.write("")
             run_btn = st.button("Run 6 Cases", type="primary", width="stretch")
 
         if run_btn:
@@ -242,137 +273,126 @@ def main():
                 agent = SupportAgent(config=cfg)
                 report = run_suite_evaluation(agent=agent, db_path=db_path)
                 st.session_state["latest_suite_report"] = report
-            st.success(f"Evaluation complete for {cfg.version}! {report.passed_cases}/{report.total_cases} passed.")
+            st.toast(f"{cfg.version}: {report.passed_cases}/{report.total_cases} cases passed", icon="✅" if report.passed_cases == report.total_cases else "⚠️")
+            snapshot = store_snapshot()
 
-        # Show results if available
-        if "latest_suite_report" in st.session_state and st.session_state["latest_suite_report"]:
-            rep: SuiteReport = st.session_state["latest_suite_report"]
-            st.markdown(f"### Evaluation Metrics — Agent Version `{rep.agent_version}`")
-
-            # Metrics cards with counts and denominators
-            c1, c2, c3, c4, c5 = st.columns(5)
-            ts = rep.metrics.get("task_success", {})
-            tf = rep.metrics.get("tool_failures", {})
-            rec = rep.metrics.get("recovery", {})
-            sv = rep.metrics.get("safety_violations", {})
-            fla = rep.metrics.get("failure_localization", {})
-
-            c1.metric("Task Success Rate", format_rate(ts, "task_success_rate", "passed_count", "total_cases"))
-            c2.metric("Tool Failure Rate", format_rate(tf, "tool_failure_rate", "failed_tool_calls", "total_tool_calls"))
-            c3.metric("Recovery Rate", format_rate(rec, "recovery_rate", "recovered_count", "error_cases_total"))
-            c4.metric("Safety Violations", format_rate(sv, "safety_violation_rate", "violation_count", "total_cases"))
-            c5.metric("Localization Accuracy", format_rate(fla, "localization_accuracy", "matched_count", "failed_cases_total"))
-
-            # Outcomes Table
-            st.markdown("#### Test Case Outcomes")
-            rows = []
-            for ev in rep.evaluations:
-                rows.append({
-                    "Case ID": ev.case_id,
-                    "Run ID": ev.run_id,
-                    "Verdict": "✅ PASS" if ev.passed else "❌ FAIL",
-                    "Score": f"{ev.score:.1f}",
-                    "Failure Category": ev.failure_category.value if ev.failure_category else "None",
-                    "Observed Tool Calls": ev.details.get("observed_tool_calls", 0),
-                    "Evidence Count": len(ev.evidence_event_ids),
-                })
-            st.dataframe(rows, width="stretch")
+        rep: Optional[SuiteReport] = st.session_state.get("latest_suite_report")
+        if rep:
+            all_passed = rep.passed_cases == rep.total_cases
+            html(ui.verdict_banner(
+                all_passed,
+                f"{rep.agent_version} · {rep.passed_cases}/{rep.total_cases} cases passed",
+                "Every case met its expected outcome." if all_passed
+                else "Some cases failed. Open “Diagnose & Autofix” to find the failing step and test a fix.",
+            ))
+            html(ui.section("Step 2 · Measure", "The six measures from the spec"))
+            html(ui.metric_rings(rep.metrics))
+            html(ui.section("Step 3 · Inspect", "Case by case"))
+            html(ui.case_grid(rep.evaluations, case_descriptions))
+            with st.expander("Table view"):
+                st.dataframe(
+                    [
+                        {
+                            "Case ID": ev.case_id,
+                            "Run ID": ev.run_id,
+                            "Verdict": "PASS" if ev.passed else "FAIL",
+                            "Score": round(ev.score, 2),
+                            "Failure Category": ev.failure_category.value if ev.failure_category else "None",
+                            "Tool Calls": ev.details.get("observed_tool_calls", 0),
+                            "Evidence Events": len(ev.evidence_event_ids),
+                        }
+                        for ev in rep.evaluations
+                    ],
+                    width="stretch",
+                    hide_index=True,
+                )
+        else:
+            st.info("Choose a setup and press **Run 6 Cases**. Try a “fixable by autofix” setup to see the whole loop.")
 
     # -------------------------------------------------------------------------
     # TAB 2: RESULTS & TRACES
     # -------------------------------------------------------------------------
     with tab_traces:
-        st.subheader("Stored Run History & Ordered Trace Events")
-        runs = list_runs(db_path)
+        html(ui.section("Observability", "Every plan, tool call and result, in order"))
+        runs = snapshot["runs"]
         if not runs:
             st.info("No runs found in the trace database yet. Run an evaluation first.")
         else:
-            run_options = [f"{r.run_id} | {r.case_id} | {r.agent_version} | {r.status}" for r in runs]
-            selected_run_str = st.selectbox("Select Run to Inspect", run_options)
-            selected_run_id = selected_run_str.split(" | ")[0]
+            run_labels = {
+                r.run_id: f"{r.run_id} · {r.agent_version} · {r.status}" for r in reversed(runs)
+            }
+            selected_run_id = st.selectbox(
+                "Select Run to Inspect", list(run_labels), format_func=run_labels.get
+            )
 
             run_trace = get_run_trace(db_path, selected_run_id)
             if run_trace and run_trace.run:
                 r_info = run_trace.run
-                st.markdown(f"#### Run Details: `{r_info.run_id}`")
-                meta_col1, meta_col2, meta_col3, meta_col4 = st.columns(4)
-                meta_col1.write(f"**Case ID:** `{r_info.case_id}`")
-                meta_col2.write(f"**Agent Version:** `{r_info.agent_version}`")
-                meta_col3.write(f"**Config Role:** `{r_info.config_role or 'original'}`")
-                meta_col4.write(f"**Status:** `{r_info.status}`")
-
+                meta = st.columns(4)
+                meta[0].metric("Case", r_info.case_id)
+                meta[1].metric("Agent Version", r_info.agent_version)
+                meta[2].metric("Config Role", r_info.config_role or "original")
+                meta[3].metric("Status", r_info.status or "-")
                 if r_info.baseline_run_id:
-                    st.caption(f"Linked Baseline Run ID: `{r_info.baseline_run_id}`")
+                    st.caption(f"Linked baseline run: `{r_info.baseline_run_id}`")
 
-                st.markdown("##### Final Agent Output")
-                st.code(r_info.final_output or "(No output)", language="text")
+                html(ui.output_bubble(r_info.final_output, r_info.status))
+                html(ui.section("Timeline", f"{len(run_trace.events)} trace events"))
+                html(ui.trace_timeline(run_trace.events))
 
-                st.markdown("##### Ordered Trace Events")
-                ev_table = []
-                for ev in run_trace.events:
-                    ev_table.append({
-                        "Seq": ev.sequence_no,
-                        "Type": ev.event_type,
-                        "Tool Name": ev.tool_name or "-",
-                        "Stage": ev.stage or "-",
-                        "Status": ev.status or "-",
-                        "Duration (ms)": f"{ev.duration_ms:.1f}" if ev.duration_ms is not None else "-",
-                        "Error Code": ev.error_code or "-",
-                        "Event ID": ev.event_id,
-                    })
-                st.dataframe(ev_table, width="stretch")
-
-                with st.expander("Inspect Raw Event Payloads"):
+                with st.expander("Table view & raw payloads"):
+                    st.dataframe(
+                        [
+                            {
+                                "Seq": ev.sequence_no,
+                                "Type": ev.event_type,
+                                "Tool": ev.tool_name or "-",
+                                "Stage": ev.stage or "-",
+                                "Status": ev.status or "-",
+                                "Duration (ms)": round(ev.duration_ms, 1) if ev.duration_ms is not None else None,
+                                "Error Code": ev.error_code or "-",
+                                "Event ID": ev.event_id,
+                            }
+                            for ev in run_trace.events
+                        ],
+                        width="stretch",
+                        hide_index=True,
+                    )
                     for ev in run_trace.events:
-                        st.write(f"**Event #{ev.sequence_no} — {ev.event_type} ({ev.tool_name or 'agent'})** [ID: `{ev.event_id}`]")
+                        st.markdown(f"**#{ev.sequence_no} {ev.event_type}** · `{ev.event_id}`")
                         if ev.input:
-                            st.write("*Input:*", ev.input)
+                            st.code(ev.input, language="json")
                         if ev.output:
-                            st.write("*Output:*", ev.output)
-                        st.divider()
+                            st.code(ev.output, language="json")
 
     # -------------------------------------------------------------------------
     # TAB 3: DIAGNOSIS & SAFE AUTOFIX (Human Approval Gate)
     # -------------------------------------------------------------------------
     with tab_autofix:
-        st.subheader("Trace-Based Diagnosis & Safe Autofix Trial")
-        st.write(
-            "Select any failed run to view trace-supported hypotheses, propose an allowlisted candidate, "
-            "test on an isolated copy, run regression gating, and record human approval/rejection."
-        )
+        html(ui.section("Diagnose → fix on a copy → you decide", "Trace-based diagnosis & safe autofix"))
 
         coordinator = AutofixCoordinator(db_path=db_path)
-        all_stored_runs = list_runs(db_path)
-        
-        # Select runs whose latest persisted evaluation result failed
-        failed_run_items = []
-        for r in all_stored_runs:
-            evals = list_evaluations(db_path, run_id=r.run_id)
-            if evals:
-                latest_eval = evals[-1]
-                if latest_eval.verdict == "FAIL":
-                    fail_cat = latest_eval.failure_category or "UNKNOWN"
-                    failed_run_items.append((r, fail_cat))
+        failed_run_items = snapshot["failed"]
 
         if not failed_run_items:
             st.info("No failed evaluations currently found in the trace database. Run an evaluation with the 'Vague Clarification Prompt' or 'Vague Tool Description' setup to generate a failure autofix can repair.")
         else:
             failed_labels = {
                 r.run_id: f"{r.run_id} | Case: {r.case_id} | Version: {r.agent_version} | Category: {cat}"
-                for r, cat in failed_run_items
+                for r, cat in reversed(failed_run_items)
             }
             # A trial records new runs, which changes this list. Keep the reviewer's run
             # selected across reruns so its trial and the approval buttons stay in place.
             if st.session_state.get("selected_failed_run") not in failed_labels:
                 st.session_state["selected_failed_run"] = next(iter(failed_labels))
-            target_run_id = st.selectbox(
-                "Select Failed Run to Diagnose",
-                list(failed_labels),
-                format_func=failed_labels.get,
-                key="selected_failed_run",
-            )
-
-            col_diag_btn, col_prop_btn = st.columns(2)
+            col_sel, col_diag_btn = st.columns([4, 1], vertical_alignment="bottom")
+            with col_sel:
+                target_run_id = st.selectbox(
+                    "Select Failed Run to Diagnose",
+                    list(failed_labels),
+                    format_func=failed_labels.get,
+                    key="selected_failed_run",
+                )
             with col_diag_btn:
                 do_diag = st.button("Run Read-Only Diagnosis", width="stretch")
 
@@ -382,30 +402,28 @@ def main():
                     st.session_state["current_diagnosis"] = diag_result
                     st.session_state["diag_run_id"] = target_run_id
                     st.session_state["current_trial_result"] = None
+                    st.session_state.pop("decision_record", None)
                 except Exception as e:
                     st.error(f"Diagnosis failed: {e}")
 
-            if "current_diagnosis" in st.session_state and st.session_state["current_diagnosis"]:
-                diag = st.session_state["current_diagnosis"]
-                st.markdown("#### Diagnosis Report")
+            diag = st.session_state.get("current_diagnosis")
+            if diag:
                 st.info(f"**Likely Cause:** {diag.likely_cause}")
-                st.write(f"**Recommended Next Step:** {diag.recommended_next_step}")
-                st.write(f"**Uncertainty Assessment:** {diag.uncertainty}")
-
-                st.markdown("##### Trace-Backed Evidence")
-                for fact in diag.observed_facts:
-                    st.markdown(f"- {fact}")
-                st.write("**Cited Event IDs:**", list(diag.cited_evidence_event_ids))
-
-                st.divider()
-                st.markdown("#### Safe Repair Candidate Generation")
+                html(ui.hypothesis_card(
+                    f"Evidence from the trace · {len(diag.cited_evidence_event_ids)} event(s) cited",
+                    diag.recommended_next_step,
+                    diag.uncertainty,
+                    diag.observed_facts,
+                ))
 
                 if st.button("Generate & Test Allowlisted Candidate on Copy", type="primary"):
-                    with st.spinner("Proposing candidate and running isolated regression trial..."):
+                    with st.spinner("Proposing a fix and re-running all six cases on a copy..."):
                         try:
                             candidate = coordinator.propose_candidate_from_diagnosis(target_run_id, diag)
                             trial = coordinator.execute_repair_trial(candidate)
                             st.session_state["current_trial_result"] = trial
+                            st.session_state.pop("decision_record", None)
+                            snapshot = store_snapshot()
                         except ValueError as ex:
                             if "No allowlisted repair" in str(ex):
                                 st.warning(
@@ -417,19 +435,13 @@ def main():
                         except Exception as ex:
                             st.error(f"Candidate generation or trial execution failed: {ex}")
 
-            if "current_trial_result" in st.session_state and st.session_state["current_trial_result"]:
-                trial: AutofixTrialResult = st.session_state["current_trial_result"]
+            trial: Optional[AutofixTrialResult] = st.session_state.get("current_trial_result")
+            if trial:
                 cand = trial.candidate
+                html(ui.section("Proposed fix", f"Candidate {cand.repair_id}"))
+                html(ui.diff_card(cand.setting_path, cand.old_value, cand.new_value, cand.rationale))
 
-                st.markdown("### Repair Candidate Trial & Gating Results")
-                prop_c1, prop_c2 = st.columns(2)
-                prop_c1.write(f"**Candidate ID:** `{cand.repair_id}`")
-                prop_c1.write(f"**Setting Path:** `{cand.setting_path}`")
-                prop_c1.write(f"**Change:** `{cand.old_value}` ➔ `{cand.new_value}`")
-                prop_c2.write(f"**Rationale:** {cand.rationale}")
-                prop_c2.write(f"**Cited Trace Evidence:** `{cand.evidence_event_ids}`")
-
-                st.markdown("#### Isolated Trial Verification")
+                html(ui.section("Re-test on the same cases", "Isolated trial gates"))
                 g1, g2, g3, g4 = st.columns(4)
                 g1.metric("Failed Case Retest", "PASS" if trial.retest_passed else "FAIL")
                 g2.metric("Safety Gate Status", "PASS" if trial.safety_passed else "FAIL")
@@ -438,54 +450,55 @@ def main():
                     "Fix Success",
                     format_rate(trial.comparison_report.repair_success, "repair_success_rate", "repaired_count", "targeted_failing_count"),
                 )
-
-                if trial.is_acceptable:
-                    st.success(f"**Trial Passed:** {trial.decision_reason}")
-                else:
-                    st.error(f"**Trial Blocked:** {trial.decision_reason}")
-
-                st.markdown("#### Regression Suite Comparison (6 Cases)")
-                st.dataframe(trial.comparison_report.case_comparisons, width="stretch")
+                html(ui.verdict_banner(
+                    trial.is_acceptable,
+                    "Trial passed — ready for your decision" if trial.is_acceptable else "Trial blocked",
+                    trial.decision_reason,
+                ))
+                with st.expander("Before vs after, case by case"):
+                    st.dataframe(trial.comparison_report.case_comparisons, width="stretch", hide_index=True)
 
                 # Human Approval Gate
-                st.markdown("### Human Review & Approval Gate")
-                st.warning("Decision policy: approval records human sign-off; the original/live agent configuration is NEVER automatically modified.")
+                html(ui.section("Human approval gate", "Approve or reject"))
+                st.caption("Approval records your sign-off. The original agent configuration is never changed automatically.")
 
                 h_col1, h_col2 = st.columns(2)
                 with h_col1:
-                    if st.button("✅ Approve Candidate", width="stretch", disabled=not trial.is_acceptable):
+                    if st.button("✅ Approve Candidate", type="primary", width="stretch", disabled=not trial.is_acceptable):
                         approved_cand = coordinator.record_human_decision(cand, ApprovalStatus.APPROVED)
                         st.session_state["decision_record"] = ("APPROVED", approved_cand.repair_id)
-                        st.success(f"Candidate {approved_cand.repair_id} marked as APPROVED by human reviewer.")
-
+                        st.balloons()
+                        snapshot = store_snapshot()
                 with h_col2:
                     if st.button("❌ Reject Candidate", width="stretch"):
                         rejected_cand = coordinator.record_human_decision(cand, ApprovalStatus.REJECTED)
                         st.session_state["decision_record"] = ("REJECTED", rejected_cand.repair_id)
-                        st.info(f"Candidate {rejected_cand.repair_id} marked as REJECTED.")
+                        snapshot = store_snapshot()
 
                 if "decision_record" in st.session_state:
                     dec, c_id = st.session_state["decision_record"]
                     st.info(f"Recorded Human Decision: **{dec}** for candidate `{c_id}`.")
 
-                # Show existing persisted decision if any
-                persisted_dec = coordinator.get_latest_decision_for_run(target_run_id)
-                if persisted_dec:
-                    st.success(
-                        f"Stored Human Sign-Off in Database: **{persisted_dec.decision}** "
-                        f"(Repair ID: `{persisted_dec.repair_id}`, Recorded at: `{persisted_dec.timestamp}`)"
-                    )
+            # Show existing persisted decision if any
+            persisted_dec = coordinator.get_latest_decision_for_run(target_run_id)
+            if persisted_dec:
+                st.success(
+                    f"Stored Human Sign-Off in Database: **{persisted_dec.decision.upper()}** "
+                    f"(Repair ID: `{persisted_dec.repair_id}`, Recorded at: `{persisted_dec.timestamp}`)"
+                )
 
     # -------------------------------------------------------------------------
     # TAB 4: FAST-FAIL COMPARISON
     # -------------------------------------------------------------------------
     with tab_baseline:
-        st.subheader("Controlled Baseline Comparison (v1.0.0 vs v0.9.0-fastfail)")
-        st.info("Demonstrates baseline divergence between standard resilient configuration and zero-retry fast-fail configuration.")
+        html(ui.section("Baseline comparison", "v1.0.0 vs v0.9.0-fastfail"))
+        st.caption("The standard agent against a version with zero retries and a two-step budget, on the same six cases.")
 
-        if st.button("Run Side-by-Side Comparison"):
-            b_rep, c_rep, comp = run_evaluation_data(db_path=db_path)
+        if st.button("Run Side-by-Side Comparison", type="primary"):
+            with st.spinner("Running both agents on all six cases..."):
+                b_rep, c_rep, comp = run_evaluation_data(db_path=db_path)
             st.session_state["cached_baseline_comp"] = (b_rep, c_rep, comp)
+            snapshot = store_snapshot()
 
         if "cached_baseline_comp" in st.session_state:
             b_rep, c_rep, comp = st.session_state["cached_baseline_comp"]
@@ -493,8 +506,31 @@ def main():
             m1.metric("Gate Status", comp.verdict)
             m2.metric("Safety Gate", comp.safety_status)
             m3.metric("Regressions", f"{comp.regression_rate.get('regressed_count', 0)}/{comp.regression_rate.get('baseline_passed_count', 0)}")
+            left, right = st.columns(2)
+            with left:
+                html(ui.section("Baseline", b_rep.agent_version))
+                html(ui.case_grid(b_rep.evaluations, case_descriptions))
+            with right:
+                html(ui.section("Candidate", c_rep.agent_version))
+                html(ui.case_grid(c_rep.evaluations, case_descriptions))
+            with st.expander("Comparison table"):
+                st.dataframe(comp.case_comparisons, width="stretch", hide_index=True)
 
-            st.dataframe(comp.case_comparisons, width="stretch")
+    # ── Header widgets filled last, so they reflect everything this run did ──
+    tagline_slot.markdown(ui.tagline(snapshot["stats"]), unsafe_allow_html=True)
+    sidebar_slot.markdown(ui.sidebar_status(snapshot["stats"]), unsafe_allow_html=True)
+    trial_state = st.session_state.get("current_trial_result")
+    pipeline_slot.markdown(
+        ui.pipeline(ui.pipeline_states(
+            has_runs=bool(snapshot["runs"]),
+            has_evals=snapshot["stats"]["evaluations"] > 0,
+            has_failures=bool(snapshot["failed"]),
+            diagnosed=bool(st.session_state.get("current_diagnosis")),
+            trial_ok=None if not trial_state else trial_state.is_acceptable,
+            decided="decision_record" in st.session_state,
+        )),
+        unsafe_allow_html=True,
+    )
 
 
 if __name__ == "__main__":
